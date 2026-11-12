@@ -5,6 +5,31 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 DIST="$PROJECT_DIR/dist"
 
+# Packaging takes a long time, so check first that this folder is the current
+# one. A second, older copy of the project is an easy mistake to make, and the
+# only symptom is a compile error that was fixed somewhere else.
+echo "Project: $PROJECT_DIR"
+if [ ! -d "$PROJECT_DIR/.git" ]; then
+	echo
+	echo "This folder is not linked to the git repository, so it may be an older"
+	echo "copy. If you have another folder with a .git directory in it, package"
+	echo "from that one instead."
+	echo
+	printf 'Carry on anyway? [y/N] '
+	read -r reply
+	case "$reply" in [yY]*) ;; *) echo "Stopped."; exit 1 ;; esac
+elif command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+	git -C "$PROJECT_DIR" fetch -q origin 2>/dev/null || true
+	BEHIND="$(git -C "$PROJECT_DIR" rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)"
+	if [ "${BEHIND:-0}" != "0" ]; then
+		echo
+		echo "This folder is $BEHIND commit(s) behind the repository. Run 'git pull'"
+		echo "first, or you will package an out-of-date build."
+		exit 1
+	fi
+	echo "Up to date with the repository."
+fi
+
 "$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
 	-project="$PROJECT_FILE" -noP4 -utf8output \
 	-platform=Linux -clientconfig=Development \
