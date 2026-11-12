@@ -232,7 +232,7 @@ void ABoatPawn::UpdatePhysicsMode()
 		Hull->SetPhysicsLinearVelocity(FVector::ZeroVector);
 		Hull->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
 	}
-	Hull->SetMaxAngularVelocityInDegrees(MaxSpinDegreesPerSecond, false);
+	Hull->SetPhysicsMaxAngularVelocityInDegrees(MaxSpinDegreesPerSecond, false);
 }
 
 bool ABoatPawn::CanDrive() const
