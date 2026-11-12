@@ -30,6 +30,10 @@ for arg in "$@"; do
 done
 
 step()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+need()  { [ -f "$1" ] || die "$1 is missing from this folder.
+That means this copy is older than the repository. Update it with:
+    git restore .            (if the folder is linked to the repo)
+or re-download the project. Compiling now would build out-of-date code."; }
 ok()    { printf '    \033[32m%s\033[0m\n' "$*"; }
 warn()  { printf '    \033[33m%s\033[0m\n' "$*"; }
 die()   { printf '\n\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
@@ -81,6 +85,7 @@ if [ "$PRESET" = low ]; then
 	if grep -q "BOAT RACE LOW SPEC" Config/DefaultEngine.ini 2>/dev/null; then
 		ok "Low graphics preset already applied"
 	else
+		need Scripts/low_spec.sh
 		bash Scripts/low_spec.sh >/dev/null && ok "Applied the low graphics preset"
 	fi
 else
@@ -103,8 +108,23 @@ step "Linking this folder to the repository"
 			git branch --set-upstream-to=origin/main main >/dev/null 2>&1
 			ok "Linked to $REPO_URL"
 			CHANGED="$(git status --porcelain | wc -l)"
-			[ "$CHANGED" = 0 ] && ok "Your files match the repository" \
-				|| warn "$CHANGED file(s) differ from the repository (git status to see them)"
+			if [ "$CHANGED" = 0 ]; then
+				ok "Your files match the repository"
+			else
+				printf '\n\033[33m    %s file(s) here differ from the repository.\033[0m\n' "$CHANGED"
+				git status --short | head -12
+				[ "$CHANGED" -gt 12 ] && echo "    ... and $((CHANGED - 12)) more"
+				cat <<'STALE'
+
+    Building now would compile whichever of these is older. To take the
+    repository's version of every tracked file (your own edits to them are
+    discarded; untracked files and build output are left alone):
+
+        git restore .  &&  bash Scripts/setup.sh
+
+STALE
+				die "Stopping so that stale code is not built."
+			fi
 		else
 			warn "Could not reach GitHub; left the folder unlinked"
 		fi
@@ -114,6 +134,7 @@ fi
 # ---------------------------------------------------------------------------
 step "Compiling the game"
 # ---------------------------------------------------------------------------
+need Scripts/build.sh
 BUILD_LOG="$(mktemp)"
 if bash Scripts/build.sh > "$BUILD_LOG" 2>&1; then
 	ok "Compiled"
