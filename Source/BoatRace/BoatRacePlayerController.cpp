@@ -2,7 +2,10 @@
 
 #include "BoatRace.h"
 #include "BoatRaceGameMode.h"
+#include "BoatTrack.h"
+#include "LanDiscovery.h"
 
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
@@ -102,10 +105,40 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 		{
 			bTypingAddress = true;
 		}
+		else
+		{
+			JoinFoundRaceOnKeyPress();
+		}
 	}
 	else if (WasInputKeyJustPressed(EKeys::L))
 	{
 		LeaveRace();
+	}
+}
+
+void ABoatRacePlayerController::JoinFoundRaceOnKeyPress()
+{
+	const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
+	if (Discovery == nullptr)
+	{
+		return;
+	}
+
+	const FKey NumberKeys[][2] =
+	{
+		{ EKeys::One, EKeys::NumPadOne },
+		{ EKeys::Two, EKeys::NumPadTwo },
+		{ EKeys::Three, EKeys::NumPadThree },
+		{ EKeys::Four, EKeys::NumPadFour },
+	};
+	const TArray<FFoundRace>& Races = Discovery->GetFoundRaces();
+	for (int32 Index = 0; Index < FMath::Min(Races.Num(), BoatTrack::MaxPlayers); ++Index)
+	{
+		if (WasInputKeyJustPressed(NumberKeys[Index][0]) || WasInputKeyJustPressed(NumberKeys[Index][1]))
+		{
+			JoinRace(Races[Index].Address);
+			return;
+		}
 	}
 }
 

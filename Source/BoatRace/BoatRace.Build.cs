@@ -13,7 +13,10 @@ public class BoatRace : ModuleRules
 			"Engine",
 			"InputCore",
 			// The moving water surface is built from a procedural mesh.
-			"ProceduralMeshComponent"
+			"ProceduralMeshComponent",
+			// Finding races on the same Wi-Fi by UDP broadcast (LanDiscovery).
+			"Sockets",
+			"Networking"
 		});
 	}
 }

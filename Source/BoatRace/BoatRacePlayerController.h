@@ -5,7 +5,8 @@
 #include "BoatRacePlayerController.generated.h"
 
 /**
- * Handles the keys that are not about driving: hosting, joining by address,
+ * Handles the keys that are not about driving: hosting, joining a race found
+ * on the network or by address,
  * starting a race, resetting the boat and leaving.
  */
 UCLASS()
@@ -29,6 +30,8 @@ protected:
 
 private:
 	void HandleAddressTyping();
+	/** Number keys on the menu join the races listed under "on your Wi-Fi". */
+	void JoinFoundRaceOnKeyPress();
 	void HostRace();
 	void JoinRace(const FString& Address);
 	void LeaveRace();

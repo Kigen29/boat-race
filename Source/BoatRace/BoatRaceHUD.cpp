@@ -5,11 +5,13 @@
 #include "BoatRacePlayerController.h"
 #include "BoatRacePlayerState.h"
 #include "BoatTrack.h"
+#include "LanDiscovery.h"
 
 #include "Algo/Sort.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
+#include "Engine/GameInstance.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -238,8 +240,13 @@ void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 		DrawTexture(TitleTexture.Get(), 0.f, 0.f, Width, Height, 0.f, 0.f, 1.f, 1.f);
 	}
 
+	const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
+	const TArray<FFoundRace> NoRaces;
+	const TArray<FFoundRace>& Races = Discovery ? Discovery->GetFoundRaces() : NoRaces;
+	const int32 RaceRows = FMath::Clamp(Races.Num(), 1, BoatTrack::MaxPlayers);
+
 	const float PanelWidth = 820.f * Scale;
-	const float PanelHeight = 520.f * Scale;
+	const float PanelHeight = (520.f + 60.f + 44.f * RaceRows) * Scale;
 	const float PanelX = (Width - PanelWidth) * 0.5f;
 	const float PanelY = Height * 0.5f - PanelHeight * 0.5f;
 	DrawRect(Panel, PanelX, PanelY, PanelWidth, PanelHeight);
@@ -263,9 +270,32 @@ void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 		return;
 	}
 
+	// Races on the same network come first: for most players joining is just
+	// pressing the number next to a friend's name.
+	if (Races.Num() == 0)
+	{
+		DrawLabel(TEXT("Looking for races on your Wi-Fi..."), CentreX, Y, 1.4f * Scale, Dim, 0.5f);
+		Y += 44.f * Scale;
+	}
+	else
+	{
+		DrawLabel(TEXT("RACES ON YOUR WI-FI"), CentreX, Y, 1.4f * Scale, Dim, 0.5f);
+		Y += 44.f * Scale;
+		for (int32 Index = 0; Index < RaceRows; ++Index)
+		{
+			const FFoundRace& Race = Races[Index];
+			const bool bFull = Race.Players >= Race.MaxPlayers;
+			const FString Status = bFull ? TEXT("full") : Race.bRacing ? TEXT("racing now") : FString::Printf(TEXT("%d/%d players"), Race.Players, Race.MaxPlayers);
+			DrawLabel(FString::Printf(TEXT("%d        Join %s   (%s)"), Index + 1, *Race.Name, *Status),
+				CentreX, Y, 1.6f * Scale, bFull ? Dim : Accent, 0.5f);
+			Y += 44.f * Scale;
+		}
+	}
+	Y += 16.f * Scale;
+
 	DrawLabel(TEXT("H        Host a race (you and up to 3 others)"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
 	Y += 48.f * Scale;
-	DrawLabel(TEXT("J        Join a race by host address"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
+	DrawLabel(TEXT("J        Join by typing an address"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
 	Y += 48.f * Scale;
 	DrawLabel(TEXT("ENTER    Solo practice race"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
 	Y += 72.f * Scale;
