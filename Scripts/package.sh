@@ -64,9 +64,9 @@ JOIN
 cat > "$GAME_DIR/HOW_TO_PLAY.txt" <<'HOWTO'
 BOAT RACE - up to 4 players
 
-One player hosts:      ./host.sh
-The other three join:  ./join.sh <host address>
-(or run ./BoatRace.sh and use the menu: H host, J join, ENTER solo)
+One player hosts: press H on the menu (or ./host.sh).
+On the same Wi-Fi the others just open the game: the host's race is listed
+on the menu, press 1 to join. (J joins by typing an address; ./join.sh too.)
 
 The host presses ENTER to start. 3 laps, pass every gate in order
 (red buoy with a cone on the inside, green buoy with a ball on the outside).
@@ -74,7 +74,7 @@ The host presses ENTER to start. 3 laps, pass every gate in order
 W / S   throttle / reverse        A / D   steer
 R       back to the last gate     L       leave the race
 
-Same network: use the host's local address (run "hostname -I" on the host).
+If the race is not listed: same Wi-Fi? Host firewall: sudo ufw allow 7777:7778/udp
 Over the internet: the host forwards UDP port 7777 on their router to their
 machine and gives the others their public address.
 HOWTO

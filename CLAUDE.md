@@ -52,6 +52,7 @@ If it says files differ, `git restore .` takes the repository's version.
 | `RaceEnvironment` | Sky, weather, light, buoys, rock spires, ramps, whirlpools, barges, debris |
 | `BoatRaceGameMode` | Server rules: four-player cap, grid, countdown, laps, wreck recovery, results |
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets |
+| `LanDiscovery` | Hosts announce on UDP 7778 once a second; the menu lists what it hears, number keys join |
 
 ### Rules that hold the design together
 

@@ -1,95 +1,60 @@
 # Getting four people into a race
 
-## The short version
+Everyone on the same Wi-Fi, everyone on Linux. Three steps, no addresses to
+type, nothing to unpack.
 
-1. One person is the **host**. They build the game once and send a copy to the
-   other three.
-2. Everyone runs the copy. The host clicks **Host**; the others click **Join**
-   and type the host's address.
-3. The host presses **ENTER** to start.
+## 1. The host shares the game
 
-## What each player needs
-
-| | Host | The other three |
-|---|---|---|
-| Linux | Yes | Yes |
-| A graphics card with Vulkan | Yes | Yes |
-| Unreal Engine installed | Yes | **No** |
-| Disk space | ~60 GB (the engine) | ~1 GB |
-
-Check any machine with `vulkaninfo --summary` (install `vulkan-tools` first).
-If it prints a GPU, it can probably run the game. Integrated Intel or AMD
-graphics will work on the low preset; a dedicated card is much better.
-
-**Everyone has to be on Linux.** Unreal cannot build a Windows copy from a
-Linux machine. If a friend is on Windows, someone with Windows, Unreal Engine
-and Visual Studio has to package it there from the same project folder.
-
-## Step 1 — The host builds the shareable copy
+The host is whoever has Unreal Engine and this project. Once, after any change
+to the game:
 
 ```bash
-cd ~/Downloads/BoatRace
-Scripts/build.sh
-Scripts/fetch_assets.sh
-Scripts/import_assets.sh
 Scripts/package.sh
 ```
 
-`package.sh` takes a while and produces `dist/BoatRace-Linux.tar.gz`. That one
-file is what the others need — it runs without Unreal Engine installed.
-
-## Step 2 — Send it to the other three
-
-Anything that moves a ~1 GB file: a USB stick, Google Drive, WeTransfer, or on
-the same network:
+Then, whenever friends need the game:
 
 ```bash
-# on the host, from the dist folder
-python3 -m http.server 8000
+Scripts/share.sh
 ```
 
-Then the others open `http://<host address>:8000` in a browser and download it.
+It prints one line, something like:
 
-Each of them unpacks it:
-
-```bash
-tar -xzf BoatRace-Linux.tar.gz
-cd LinuxClient        # or whatever folder appears
-./BoatRace.sh
+```
+wget -qO- http://192.168.1.20:8000/install.sh | bash
 ```
 
-## Step 3 — Find the host's address
+## 2. Each friend pastes that line into a terminal
 
-On the host:
+It downloads the game (about 420 MB), installs it in `~/BoatRace` and adds
+**Boat Race** to their apps. They don't need Unreal Engine. When everyone has
+it, the host presses Ctrl+C to stop sharing.
 
-```bash
-hostname -I | awk '{print $1}'     # same wifi or LAN, e.g. 192.168.1.20
-curl -s ifconfig.me                 # over the internet
-```
-
-## Step 4 — Open the door
-
-On the same network, the host allows the game's port:
-
-```bash
-sudo ufw allow 7777/udp
-```
-
-Over the internet, the host also forwards **UDP port 7777** on their router to
-their computer. Router pages differ; look for "Port Forwarding" or "NAT". If
-that is not possible, use a free virtual-LAN tool such as ZeroTier or Tailscale
-on all four machines and use the address it gives the host.
-
-## Step 5 — Play
+## 3. Play
 
 | Who | What they do |
 |---|---|
-| Host | `./host.sh`, or run the game and press **H** |
-| Everyone else | `./join.sh 192.168.1.20`, or run the game, press **J**, type the address, press ENTER |
-| Host, once the lobby shows everyone | Press **ENTER** |
+| Host | `Scripts/play.sh`, then press **H** |
+| Friends | Open **Boat Race**. The host's race appears on the menu; press **1** to join |
+| Host, when the lobby shows everyone | Press **ENTER** to start |
 
-The lobby counts players, so the host can see when all four have arrived. A
-fifth connection is refused.
+The menu finds races by itself: a host announces its race on the Wi-Fi once a
+second, and the list updates as races start and end. Joining by typed address
+(**J**) still works for anything the list can't see, such as a friend on
+another network via Tailscale or ZeroTier.
+
+## What each machine needs
+
+| | Host | Friends |
+|---|---|---|
+| Linux | Yes | Yes |
+| Graphics with Vulkan (`vulkaninfo --summary` shows a GPU) | Yes | Yes |
+| Unreal Engine | Yes | **No** |
+| Disk space | ~60 GB (the engine) | ~1 GB |
+
+Integrated Intel or AMD graphics work on the low preset, which `setup.sh`
+picks automatically. A Windows or Mac copy has to be packaged on a Windows or
+Mac machine; Linux can't build one.
 
 ## Controls
 
@@ -124,9 +89,10 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 
 | Problem | Cause and fix |
 |---|---|
-| Joining drops straight back to the menu | Wrong address, firewall, or port 7777 not forwarded. Check the host's address again |
+| The menu says "Looking for races..." and never lists the host | Not on the same Wi-Fi, a guest network that keeps devices apart, or a firewall. On the host: `sudo ufw allow 7777:7778/udp`. Otherwise press **J** and type the host's address (`hostname -I` on the host) |
+| The pasted line says "connection refused" or hangs | `share.sh` isn't running on the host, or a firewall is blocking it: `sudo ufw allow 8000/tcp` |
+| Joining drops straight back to the menu | The host's firewall is blocking UDP 7777: `sudo ufw allow 7777/udp` |
 | "This race is full" | Four are already in |
-| Boats jitter or rubber-band | Poor connection to the host. The host should use a wired connection if possible |
-| Everything is slow | Run `Scripts/low_spec.sh` before packaging, then rebuild and resend |
-| The host leaves | The race ends for everyone. The host has to be the most stable machine |
-| One player sees different weather or a different sea | Their `Config/DefaultGame.ini` differs. All four must use the same copy |
+| Boats jitter or rubber-band | Poor connection to the host. The host should be close to the router, or wired |
+| The host leaves | The race ends for everyone. The host should be the most stable machine |
+| One player sees different weather or a different sea | They have an older copy. Run `package.sh` and `share.sh` again, and everyone re-pastes the line |

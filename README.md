@@ -39,13 +39,15 @@ Scripts/play.sh           # play
 
 On integrated graphics, run `Scripts/low_spec.sh` first.
 
-To race with three friends, follow [ONBOARDING.md](ONBOARDING.md).
+To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
+`Scripts/share.sh`, and each friend pastes the line it prints. Details in
+[ONBOARDING.md](ONBOARDING.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: what each player needs, building the shareable copy, finding the host's address, firewall and router, and what to do when a join fails |
+| **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: sharing the game over Wi-Fi in one line, joining from the menu list, and what to do when a join fails |
 | [PLAN.md](PLAN.md) | What was built and why, stage by stage, with the real-world powerboat racing it borrows from |
 | [HIGGSFIELD_ASSETS.md](HIGGSFIELD_ASSETS.md) | The generated art: which models, the exact prompts, what each cost, and how to replace any of it |
 | [CLAUDE.md](CLAUDE.md) | Working context for an AI coding agent: current state, design rules, verification scripts |
@@ -60,7 +62,8 @@ To race with three friends, follow [ONBOARDING.md](ONBOARDING.md).
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
 | ENTER | Host: start the race. On the menu: solo practice |
-| H / J | Menu: host / join |
+| H / J | Menu: host / join by typed address |
+| 1–4 | Menu: join a race found on your Wi-Fi |
 | L | Leave the race |
 
 Gamepad: triggers for throttle, left stick to steer, A torpedo, X mine,
