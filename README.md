@@ -9,9 +9,9 @@ untidy. One player hosts, three others join by address.
 
 ## Status
 
-- **Version 0.2.** The code has not been compiled or run: it was written in a
-  workspace with no Unreal Engine and no GPU. Version 0.1 did compile cleanly
-  against Unreal 5.9, which is a good sign but no guarantee for this one.
+- **Version 0.2 compiles** on Unreal Engine 5.9.0 preview-1 under Ubuntu, with
+  no warnings. It has not been playtested, so the handling, the difficulty and
+  the sea state are calculated rather than felt.
 - The physics was checked by simulating it numerically rather than by feel
   (`Scripts/physics_check.py`), and the circuit by generating and testing its
   geometry (`Scripts/course_layout.py`). Both found real bugs, which is why
@@ -20,10 +20,17 @@ untidy. One player hosts, three others join by address.
 
 ## Quick start
 
-With Unreal Engine 5 unpacked and `UE_ROOT` pointing at it:
+One command does everything: finds Unreal Engine, picks graphics settings for
+the machine, compiles, and downloads and imports the art.
 
 ```bash
-cd BoatRace
+bash Scripts/setup.sh
+Scripts/play.sh
+```
+
+Or step by step, with Unreal Engine 5 unpacked and `UE_ROOT` pointing at it:
+
+```bash
 Scripts/build.sh          # compile
 Scripts/fetch_assets.sh   # download the Higgsfield boat, art and water map
 Scripts/import_assets.sh  # import them and build the materials
@@ -32,7 +39,16 @@ Scripts/play.sh           # play
 
 On integrated graphics, run `Scripts/low_spec.sh` first.
 
-To race with other people, see **ONBOARDING.md**.
+To race with three friends, follow [ONBOARDING.md](ONBOARDING.md).
+
+## Documentation
+
+| | |
+|---|---|
+| **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: what each player needs, building the shareable copy, finding the host's address, firewall and router, and what to do when a join fails |
+| [PLAN.md](PLAN.md) | What was built and why, stage by stage, with the real-world powerboat racing it borrows from |
+| [HIGGSFIELD_ASSETS.md](HIGGSFIELD_ASSETS.md) | The generated art: which models, the exact prompts, what each cost, and how to replace any of it |
+| [CLAUDE.md](CLAUDE.md) | Working context for an AI coding agent: current state, design rules, verification scripts |
 
 ## Controls
 
