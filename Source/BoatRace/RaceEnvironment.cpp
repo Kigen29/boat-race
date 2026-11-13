@@ -265,6 +265,8 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		Moon->SetLightColor(Look.SunColor);
 		Moon->SetIntensity(Look.SunIntensity);
 		Moon->SetVisibility(true);
+		// Only the moon throws shadows: two shadowed lights halve the frame rate.
+		Sun->SetCastShadows(false);
 	}
 	else
 	{
@@ -273,6 +275,7 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		BaseSunIntensity = Look.SunIntensity;
 		Moon->SetIntensity(0.f);
 		Moon->SetVisibility(false);
+		Sun->SetCastShadows(true);
 	}
 	Sun->SetLightColor(Look.SunColor);
 	ApplyGrade(Look);
