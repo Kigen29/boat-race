@@ -13,7 +13,7 @@ COMMON=(-game -nullrhi -nosound -unattended -log)
 "$EDITOR_CMD" "$PROJECT_FILE" "/Engine/Maps/Entry?listen" "${COMMON[@]}" -AutoRace=25 -ExitAfter=120 -abslog="$HOST_LOG" >/dev/null 2>&1 &
 HOST=$!
 sleep 15
-"$EDITOR_CMD" "$PROJECT_FILE" "127.0.0.1?Name=NetClient" "${COMMON[@]}" -Autopilot -ExitAfter=100 -abslog="$CLIENT_LOG" >/dev/null 2>&1 &
+"$EDITOR_CMD" "$PROJECT_FILE" 127.0.0.1 "${COMMON[@]}" -Autopilot -ExitAfter=100 -abslog="$CLIENT_LOG" >/dev/null 2>&1 &
 CLIENT=$!
 wait $CLIENT; wait $HOST
 
@@ -24,7 +24,9 @@ check "$HOST_LOG" "joined in slot 2" "a second player joined"
 check "$HOST_LOG" "2 computer rival" "rivals took the two empty seats"
 check "$HOST_LOG" "Countdown started with 4 player" "the race started with four boats"
 check "$HOST_LOG" "passed gate [0-9]+" "boats are passing gates"
-check "$HOST_LOG" "NetClient passed gate" "the client's own boat scored gates (its moves replicate)"
+# Both copies share this computer's name; the client is the one in slot 2,
+# and the host's own boat sits still, so slot 2 gates are the client's.
+check "$HOST_LOG" "\(slot 2\) passed gate" "the client's own boat scored gates (its moves replicate)"
 echo "Client:"
 check "$CLIENT_LOG" "Bay built" "built the bay"
 check "$CLIENT_LOG" "Weather now" "received the weather"

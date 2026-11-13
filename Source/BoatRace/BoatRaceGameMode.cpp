@@ -453,8 +453,8 @@ void ABoatRaceGameMode::UpdateRacing(ABoatRaceGameState* RaceState)
 		}
 
 		RacePlayer->GatesPassed++;
-		UE_LOG(LogBoatRace, Log, TEXT("%s passed gate %d (lap %d)."), *RacePlayer->GetPlayerName(), RacePlayer->NextGate + 1,
-			FMath::Max(RacePlayer->LapsCompleted + 1, 1));
+		UE_LOG(LogBoatRace, Log, TEXT("%s (slot %d) passed gate %d (lap %d)."), *RacePlayer->GetPlayerName(), RacePlayer->SlotIndex + 1,
+			RacePlayer->NextGate + 1, FMath::Max(RacePlayer->LapsCompleted + 1, 1));
 		RacePlayer->NextGate = (RacePlayer->NextGate + 1) % Gates.Num();
 	}
 

@@ -294,7 +294,7 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		if (UMaterialInstanceDynamic* Foam = Cast<UMaterialInstanceDynamic>(Ripples->GetMaterial(0)))
 		{
 			Foam->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.85f, 0.9f, 0.95f) * FMath::Max(Look.FoamBrightness * 1.6f, 0.3f));
-			Foam->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
+			Foam->SetScalarParameterValue(TEXT("Opacity"), 0.28f);
 		}
 	}
 	if (Terrain != nullptr)
@@ -1466,7 +1466,7 @@ void ARaceEnvironment::UpdateRipples(float Seconds)
 		const float Age = Cycle - Round;
 		const FVector2D Offset(Wobble(Index * 31 + Round, 1) * 2600.f, Wobble(Index * 17 + Round, 2) * 2600.f + 900.f);
 		const FVector2D Point(Camera.X + Offset.X, Camera.Y + Offset.Y);
-		const float Size = 0.08f + 0.5f * Age;
+		const float Size = 0.05f + 0.3f * Age;
 		const float Surface = OceanWaves::GetHeight(Point, Seconds);
 		RippleTransforms[Index] = FTransform(FRotator::ZeroRotator, FVector(Point.X, Point.Y, Surface + 4.f),
 			FVector(Size * PerMetre));

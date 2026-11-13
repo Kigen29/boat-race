@@ -106,6 +106,13 @@ Visual check, after anything that changes how the game looks:
 Scripts/play.sh menu -PhotoTour     # races, visits every weather, sets off a blast, quits
 ```
 
+Screenshots land in `Saved/Screenshots/LinuxEditor/`. Two automated checks:
+
+```bash
+Scripts/smoke_test.sh     # the photo tour; fails on a crash, missing shots or low fps
+Scripts/net_test.sh       # headless host + client; client must join and score gates
+```
+
 Screenshots land in `Saved/Screenshots/LinuxEditor/`. The tour drives the
 player's boat itself; keys pressed in its window still count.
 
@@ -127,8 +134,8 @@ runs and the grid must be water.
 
 1. **Not played by hand.** Rival skill (`RivalSkill`), handling (`TurnRate`,
    `WaveRoughness`, `BuoyancyMultiplier`) and crash damage are guesses.
-2. **Multiplayer not retested** across machines since the rivals and weather
-   were added.
+2. **Multiplayer checked on one machine only** (`net_test.sh`); not yet across
+   two machines on Wi-Fi.
 3. **Effects are mesh puffs, not Niagara.** Spray, smoke and fire are pooled
    soft spheres; good enough on integrated graphics, not film quality.
 4. **No crowd or commentator.** The grandstand is empty; sound is synthesised.
