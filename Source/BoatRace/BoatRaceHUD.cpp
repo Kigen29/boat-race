@@ -476,7 +476,8 @@ void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<F
 void ABoatRaceHUD::DrawCountdown(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale)
 {
 	DrawStartLights(RaceState, Width, Height, Scale);
-	DrawLabel(FString::Printf(TEXT("%d LAPS   %s"), RaceState->TotalLaps, RaceWeather::Get(RaceState->GetWeather()).Name),
+	DrawLabel(FString::Printf(TEXT("%s%d LAPS   %s"), RaceState->bTimeTrial ? TEXT("TIME TRIAL   ") : TEXT(""), RaceState->TotalLaps,
+		RaceWeather::Get(RaceState->GetWeather()).Name),
 		Width * 0.5f, Height * 0.2f + 150.f * Scale, 1.7f * Scale, Ink, 0.5f);
 }
 
@@ -568,6 +569,7 @@ void ABoatRaceHUD::UpdateRaceCues(const ABoatRaceGameState* RaceState, const TAr
 		else if (RaceState->RaceState == ERaceState::Results)
 		{
 			BoatAudio::Play2D(this, EBoatSound::Fanfare, 0.7f);
+			BoatAudio::Play2D(this, EBoatSound::Crowd, 0.5f);
 		}
 		else if (RaceState->RaceState == ERaceState::Countdown)
 		{
@@ -620,6 +622,7 @@ void ABoatRaceHUD::UpdateRaceCues(const ABoatRaceGameState* RaceState, const TAr
 			Prefs->OfferRace(RaceState->TotalLaps, Me->FinishTime);
 		}
 		BoatAudio::Play2D(this, Me->FinishPosition == 1 ? EBoatSound::Fanfare : EBoatSound::LapChime, 0.8f);
+		BoatAudio::Play2D(this, EBoatSound::Crowd, Me->FinishPosition == 1 ? 0.6f : 0.35f);
 		ShowBanner(Me->FinishPosition == 1 ? FString(TEXT("YOU WIN!")) : FString::Printf(TEXT("%s PLACE"), *Ordinal(Me->FinishPosition).ToUpper()),
 			Me->FinishPosition == 1 ? Accent : Ink, 4.f);
 	}
@@ -714,6 +717,22 @@ void ABoatRaceHUD::DrawStandingsBlock(const ABoatRaceGameState* RaceState, const
 
 	DrawLabel(TEXT("BEST"), LabelX, Row, 1.15f * Scale, Faint);
 	DrawLabel((Me && Me->BestLapTime > 0.f) ? FormatTime(Me->BestLapTime) : FString(TEXT("--")), ValueX, Row, 1.15f * Scale, Ink);
+	// Time trial: how far ahead of or behind the ghost at the last gate.
+	if (const ABoatRacePlayerController* Racing = Cast<ABoatRacePlayerController>(GetOwningPlayerController()))
+	{
+		float Delta = 0.f, Age = 0.f;
+		if (RaceState->bTimeTrial && Racing->GetGhostDelta(Delta, Age))
+		{
+			Row += 22.f * Scale;
+			DrawLabel(TEXT("GHOST"), LabelX, Row, 1.15f * Scale, Faint);
+			const FLinearColor DeltaColour = Delta <= 0.f ? Good : Bad;
+			DrawLabel(FString::Printf(TEXT("%+.2f"), Delta), ValueX, Row, 1.15f * Scale, DeltaColour);
+			if (Age < 2.5f)
+			{
+				DrawLabel(FString::Printf(TEXT("%+.2f"), Delta), Canvas->SizeX * 0.5f, Canvas->SizeY * 0.2f, 2.4f * Scale, DeltaColour, 0.5f, true);
+			}
+		}
+	}
 	if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
 	{
 		if (Prefs->BestLap > 0.f)

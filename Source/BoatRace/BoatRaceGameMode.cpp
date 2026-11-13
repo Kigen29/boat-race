@@ -116,7 +116,8 @@ void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
 {
 	RemoveRivals(0);
 	// The host's choice: none, or easy / normal / hard around RivalSkill.
-	const int32 Level = RaceState ? RaceState->RivalLevel : 2;
+	// A time trial is always alone (the ghost is the opponent).
+	const int32 Level = RaceState ? (RaceState->bTimeTrial ? 0 : RaceState->RivalLevel) : 2;
 	if (!bFillWithRivals || Level == 0)
 	{
 		return;
@@ -238,6 +239,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 	if (AutoRaceAfter > 0.f && RaceState->RaceState == ERaceState::Lobby && GetWorld()->GetTimeSeconds() > AutoRaceAfter)
 	{
 		AutoRaceAfter = 0.f;
+		RaceState->bTimeTrial = FParse::Param(FCommandLine::Get(), TEXT("TimeTrial"));
 		StartCountdown(RaceState);
 	}
 
@@ -262,6 +264,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 		if (RaceState->GetServerNow() >= RaceState->StateEndTime)
 		{
 			RaceState->RaceState = ERaceState::Lobby;
+			RaceState->bTimeTrial = false;
 			RemoveRivals(0);
 		}
 		break;
@@ -271,7 +274,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 	}
 }
 
-void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester, bool bRestart)
+void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester, bool bRestart, bool bTimeTrial)
 {
 	ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>();
 	if (RaceState == nullptr || Requester == nullptr)
@@ -286,6 +289,11 @@ void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester, bool bRes
 	const bool bIdle = bRestart || RaceState->RaceState == ERaceState::Lobby || RaceState->RaceState == ERaceState::Results;
 	if (bMayStart && bIdle)
 	{
+		// A restart keeps whatever kind of race it was.
+		if (!bRestart)
+		{
+			RaceState->bTimeTrial = bTimeTrial;
+		}
 		StartCountdown(RaceState);
 	}
 }

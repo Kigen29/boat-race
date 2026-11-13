@@ -70,6 +70,10 @@ public:
 	UPROPERTY(Replicated)
 	int32 TotalLaps = 2;
 
+	/** Time trial: alone against the ghost of your best lap. */
+	UPROPERTY(Replicated)
+	bool bTimeTrial = false;
+
 	/** 0 no rivals, 1 easy, 2 normal, 3 hard. Shown in everyone's lobby. */
 	UPROPERTY(Replicated)
 	uint8 RivalLevel = 2;

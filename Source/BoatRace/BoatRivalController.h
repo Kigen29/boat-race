@@ -32,6 +32,10 @@ public:
 	/** Preferred offset from the racing line, metres, so the four do not queue. */
 	float LaneOffset = 0.f;
 
+	/** Where to steer: a point on the racing line ahead, swerving round
+	 *  rocks, whirlpools, barges and logs. Shared with the test autopilot. */
+	static FVector2D RacingTarget(const UWorld* World, const ABoatPawn* Boat, int32 NextGate, float Speed, float LaneMetres);
+
 private:
 	FVector2D PickTarget(const ABoatPawn* Boat, int32 NextGate, float Speed) const;
 	void UseWeapons(ABoatPawn* Boat, float Now);

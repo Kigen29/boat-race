@@ -8,6 +8,7 @@
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
+#include "BoatRivalController.h"
 #include "BoatRacePlayerState.h"
 #include "BoatTrack.h"
 #include "OceanWaves.h"
@@ -402,11 +403,31 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 	const ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
 	if (bAutopilot && CanDrive() && Racer != nullptr && BoatTrack::GetGates().IsValidIndex(Racer->NextGate))
 	{
-		const FVector2D ToGate = BoatTrack::GetGates()[Racer->NextGate].Center - FVector2D(GetActorLocation().X, GetActorLocation().Y);
+		// The rivals' own line and obstacle avoidance, and their trick of
+		// backing out when beached or pinned.
+		const float Speed = FMath::Abs(GetForwardSpeed());
+		const FVector2D Target = ABoatRivalController::RacingTarget(GetWorld(), this, Racer->NextGate, Speed, 0.f);
+		const FVector2D ToTarget = Target - FVector2D(GetActorLocation().X, GetActorLocation().Y);
 		const float Error = FMath::FindDeltaAngleDegrees(static_cast<float>(GetActorRotation().Yaw),
-			FMath::RadiansToDegrees(FMath::Atan2(ToGate.Y, ToGate.X)));
-		Throttle = 0.85f;
-		Steer = FMath::Clamp(Error / 30.f, -1.f, 1.f);
+			FMath::RadiansToDegrees(FMath::Atan2(ToTarget.Y, ToTarget.X)));
+		const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+		AutopilotStuck = Speed < 220.f ? AutopilotStuck + DeltaSeconds : 0.f;
+		if (AutopilotStuck > 2.5f)
+		{
+			AutopilotReverseUntil = Now + 1.4f;
+			AutopilotStuck = 0.f;
+		}
+		const bool bReversing = Now < AutopilotReverseUntil;
+		static float NextReport = 0.f;
+		if (Now > NextReport && FParse::Param(FCommandLine::Get(), TEXT("AutopilotLog")))
+		{
+			NextReport = Now + 4.f;
+			UE_LOG(LogBoatRace, Log, TEXT("Autopilot: at %.0f %.0f %.0f, %.0f km/h, gate %d, error %.0f, pitch %.0f roll %.0f, hull %.0f, submerged %.2f, rev %d"),
+				GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z, Speed * 0.036f, Racer->NextGate + 1, Error,
+				GetActorRotation().Pitch, GetActorRotation().Roll, Health, LastSubmersion, bReversing ? 1 : 0);
+		}
+		Throttle = bReversing ? -1.f : (FMath::Abs(Error) > 55.f ? 0.5f : 0.85f);
+		Steer = FMath::Clamp(Error / 28.f, -1.f, 1.f) * (bReversing ? -1.f : 1.f);
 	}
 
 	// Boost: hold SHIFT or the right bumper.
@@ -488,9 +509,31 @@ void ABoatPawn::SimulatePhysics(float DeltaSeconds, float WaveTime)
 	const float TiltDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(static_cast<float>(Up.Z), -1.f, 1.f)));
 	if (TiltDegrees > SelfRightAngle)
 	{
-		const FVector Axis = FVector::CrossProduct(Up, FVector::UpVector);
+		// Roll back towards upright. Fully inverted, "towards upright" has no
+		// direction (the cross product is zero), so roll about the keel.
+		FVector Axis = FVector::CrossProduct(Up, FVector::UpVector);
+		if (Axis.SizeSquared() < 0.01)
+		{
+			Axis = GetActorForwardVector();
+		}
 		const float Strength = (TiltDegrees - SelfRightAngle) / 110.f;
 		Hull->AddTorqueInRadians(Axis.GetSafeNormal() * (YawInertia * 2.2f * FMath::Clamp(Strength, 0.f, 1.f)));
+	}
+
+	// Capsize recovery. Buoyancy holds an upside-down hull upside down, like a
+	// raft, so torque alone cannot always bring it back; after a couple of
+	// seconds over, put the boat upright where it is, as arcade racers do.
+	CapsizedTime = TiltDegrees > 100.f ? CapsizedTime + DeltaSeconds : 0.f;
+	if (CapsizedTime > 2.5f)
+	{
+		CapsizedTime = 0.f;
+		const FVector Velocity = Hull->GetPhysicsLinearVelocity();
+		const float Surface = OceanWaves::GetHeight(FVector2D(Location.X, Location.Y), WaveTime);
+		SetActorLocationAndRotation(FVector(Location.X, Location.Y, Surface + BoatTrack::BoatRideHeight + 40.f),
+			FRotator(0.f, GetActorRotation().Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+		Hull->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+		Hull->SetPhysicsLinearVelocity(FVector(Velocity.X * 0.3, Velocity.Y * 0.3, 0.0));
+		BoatAudio::PlayAt(this, EBoatSound::Splash, GetActorLocation(), 0.8f);
 	}
 }
 
@@ -666,7 +709,9 @@ void ABoatPawn::ApplyEngineAndRudder(float DeltaSeconds)
 	// keeps accelerating the roll whenever the hull leaves the water, and the
 	// boat ends up upside down.
 	const float WaterContact = FMath::Clamp(LastSubmersion * BuoyancyMultiplier * 2.5f, 0.f, 1.f);
-	if (WaterContact > 0.f)
+	const float UpZ = static_cast<float>(GetActorUpVector().Z);
+	// The lean is for small angles; past 60 degrees it would fight the righting.
+	if (WaterContact > 0.f && UpZ > 0.5f)
 	{
 		const float CurrentRoll = FMath::DegreesToRadians(static_cast<float>(GetActorRotation().Roll));
 		const float TargetRoll = FMath::DegreesToRadians(-InputSteer * MaxHeelDegrees * SpeedFraction);

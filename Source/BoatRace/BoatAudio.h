@@ -31,7 +31,9 @@ enum class EBoatSound : uint8
 	Wind,        // loop
 	Sea,         // loop
 	Gull,
-	Music,       // loop
+	Music,       // loop: the race
+	MenuMusic,   // loop: menus and lobby, calmer
+	Crowd,       // a grandstand cheering
 	Count
 };
 
@@ -121,6 +123,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> MusicLoop;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> MenuLoop;
+
+	float RaceMix = 0.f;
 
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> RainLoop;

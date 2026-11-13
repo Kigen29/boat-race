@@ -54,6 +54,8 @@ If it says files differ, `git restore .` takes the repository's version.
 |---|---|
 | `BayTerrain` | The land: one height function from the shore table in `BoatTrackData.h`. Builds the mesh (solid near the course), plants trees and rocks, places the grandstand, cottages, lighthouse, bridge and duck, and tells boats which way the water is |
 | `BoatArt` | Loads `/Game/Models/SM_*` and gives every material slot a finish from its name (`Leaf_5CB646`): the part decides the master material (clear-coat `M_Paint`, livery `M_Livery`, grained `M_Surface` for metal/rubber/wood/rock, `M_Glass`, `M_Foam`) and the hex its colour. `Paint_*`/`Livery*` take a player's colour, `Lamp*` glow; snow and night are tints |
+| `BoatGhost` | Time trial's ghost: the best lap recorded ten times a second, saved to `Saved/BoatRace/Ghost.dat`, replayed as a see-through boat; gate splits drive the HUD's ahead/behind |
+| `BoatPrefs` | Per-player settings and records in the user's Game.ini: camera, steering, graphics, rumble, best lap and race times |
 | `BoatWake` | The wake ribbon: white water behind the transom plus the two Kelvin arms (19.5°), laid down by distance travelled and drawn on the waves |
 | `RaceWeather` | The nine weathers as data, plus wind and lightning timing from the shared clock. The host's choice is one replicated byte on the game state |
 | `BoatAudio` | Every sound synthesised in code at startup (no audio files) and played through procedural waves; a world subsystem runs the music, rain, wind and sea beds |
@@ -94,7 +96,9 @@ python3 Scripts/physics_check.py    # mirrors BoatPawn.cpp as a rigid body
 python3 Scripts/course_layout.py    # regenerates and checks BoatTrackData.h
 ```
 
-`physics_check.py` must end in `FAILURES: 0`. It checks that the boat floats
+`physics_check.py` must end in `FAILURES: 0`. Test 8 starts the boat upside
+down: buoyancy holds an inverted hull inverted (like a raft), so the game sets
+a boat upright after 2.5 s over 100 degrees; the check mirrors that. It checks that the boat floats
 and settles, reaches its top speed, turns without capsizing, and behaves the
 same from 120 fps down to 20 fps. It has already caught a propeller mounted
 above the waterline (top speed zero) and drag following the hull's tilted axes

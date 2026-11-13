@@ -18,6 +18,7 @@ enum class EMenuAction : uint8
 {
 	None,
 	Solo,
+	TimeTrial,
 	Host,
 	JoinFound,
 	JoinAddress,
@@ -84,6 +85,10 @@ public:
 	/** Standalone and not racing: the title screen. */
 	bool IsOnMainMenu() const;
 
+	/** Time trial: seconds ahead (negative) or behind the ghost at the last gate. */
+	bool GetGhostDelta(float& OutDelta, float& OutAge) const;
+	float GetGhostLapTime() const;
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRequestStart();
@@ -98,6 +103,9 @@ protected:
 	void ServerRequestRestart();
 
 	UFUNCTION(Server, Reliable)
+	void ServerRequestTimeTrial();
+
+	UFUNCTION(Server, Reliable)
 	void ServerRaceOption(int32 Option, int32 Step);
 
 private:
@@ -110,10 +118,24 @@ private:
 	/** -PhotoTour: drives a scripted tour of every weather and takes screenshots. */
 	void RunPhotoTour(float DeltaTime);
 
+	void UpdateTimeTrial(float DeltaTime);
 	void HandleMenuInput();
 	void ActivateMenuItem(const FMenuItem& Item, int32 Step);
 	void OpenMenu(EMenuScreen Screen);
 	void SyncCursor();
+
+	// Time trial: the lap being recorded, the best lap's ghost.
+	TSharedPtr<struct FGhostLap> BestGhost;
+	TSharedPtr<struct FGhostLap> Recording;
+	UPROPERTY()
+	TObjectPtr<class AGhostBoat> Ghost;
+	int32 GhostSeenLaps = -1;
+	int32 GhostSeenGate = -1;
+	float GhostLapStart = 0.f;
+	float GhostRecordClock = 0.f;
+	float GhostDelta = 0.f;
+	float GhostDeltaAt = -100.f;
+	bool bGhostDeltaValid = false;
 
 	EMenuScreen MenuScreen = EMenuScreen::None;
 	/** Where Back goes from Settings or Controls. */

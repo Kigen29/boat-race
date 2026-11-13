@@ -460,6 +460,9 @@ private:
 
 	float SprayAccumulator = 0.f;
 	float Boost = 0.3f;
+	float CapsizedTime = 0.f;
+	float AutopilotStuck = 0.f;
+	float AutopilotReverseUntil = -1.f;
 	bool bBoostActive = false;
 	bool bWantBoost = false;
 	bool bLookBack = false;

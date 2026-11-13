@@ -21,6 +21,11 @@ ABoatRivalController::ABoatRivalController()
 
 FVector2D ABoatRivalController::PickTarget(const ABoatPawn* Boat, int32 NextGate, float Speed) const
 {
+	return RacingTarget(GetWorld(), Boat, NextGate, Speed, LaneOffset);
+}
+
+FVector2D ABoatRivalController::RacingTarget(const UWorld* World, const ABoatPawn* Boat, int32 NextGate, float Speed, float LaneMetres)
+{
 	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
 	const int32 Count = Gates.Num();
 	const FVector Location = Boat->GetActorLocation();
@@ -50,7 +55,7 @@ FVector2D ABoatRivalController::PickTarget(const ABoatPawn* Boat, int32 NextGate
 	const FVector2D Direction = (B - A).GetSafeNormal();
 	FVector2D Target = A + Direction * (Along + Ahead);
 	const FVector2D ToInside(-Direction.Y, Direction.X);
-	Target += ToInside * (LaneOffset * 100.0);
+	Target += ToInside * (LaneMetres * 100.0);
 
 	// Swerve round anything solid between here and there.
 	auto Avoid = [&](const FVector2D& Centre, float Radius)
@@ -84,7 +89,6 @@ FVector2D ABoatRivalController::PickTarget(const ABoatPawn* Boat, int32 NextGate
 	{
 		Avoid(Pool.Center, Pool.Radius * 0.8f);
 	}
-	const UWorld* World = GetWorld();
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
 	const float Now = RaceState ? RaceState->GetServerNow() : 0.f;
 	for (const FBoatBarge& Barge : BoatTrack::GetBarges())

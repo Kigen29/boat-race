@@ -481,7 +481,7 @@ namespace
 		return Out;
 	}
 
-	FBuffer MakeMusic()
+	FBuffer MakeMusic(bool bCalm = false)
 	{
 		// 16 bars at 120 bpm in A minor: Am F C G, driving four-on-the-floor,
 		// a pumping bass, a sixteenth-note arpeggio and a hook in the second half.
@@ -491,8 +491,13 @@ namespace
 		Out.SetNumZeroed(Steps * Sixteenth);
 		FRandomStream Random(53);
 
-		const float Roots[] = { 57.f, 53.f, 48.f, 55.f };              // A2 F2 C2 G2
-		const float Chords[][3] = { { 69.f, 72.f, 76.f }, { 65.f, 69.f, 72.f }, { 64.f, 67.f, 72.f }, { 67.f, 71.f, 74.f } };
+		// The race: Am F C G. The menus: C G Am F, the same sound, relaxed.
+		const float RaceRoots[] = { 57.f, 53.f, 48.f, 55.f };
+		const float CalmRoots[] = { 48.f, 55.f, 57.f, 53.f };
+		const float RaceChords[][3] = { { 69.f, 72.f, 76.f }, { 65.f, 69.f, 72.f }, { 64.f, 67.f, 72.f }, { 67.f, 71.f, 74.f } };
+		const float CalmChords[][3] = { { 64.f, 67.f, 72.f }, { 67.f, 71.f, 74.f }, { 69.f, 72.f, 76.f }, { 65.f, 69.f, 72.f } };
+		const float* Roots = bCalm ? CalmRoots : RaceRoots;
+		const float (*Chords)[3] = bCalm ? CalmChords : RaceChords;
 		const float Hook[] = { 76.f, 0.f, 74.f, 72.f, 74.f, 0.f, 76.f, 0.f, 79.f, 0.f, 76.f, 74.f, 72.f, 0.f, 69.f, 0.f };
 
 		FLowPass BassFilter(500.f), PadFilter(1300.f), ArpFilter(3200.f), LeadFilter(2600.f);
@@ -511,23 +516,24 @@ namespace
 			const bool bSecondHalf = Bar >= 8;
 			float Sample = 0.f;
 
-			// Kick on every beat: a fast falling sine.
+			// Kick on every beat (every other one, softly, on the menus).
 			const int32 BeatSample = Index % (Sixteenth * 4);
 			const float BeatTime = static_cast<float>(BeatSample) / Rate;
+			if (!bCalm || (Beat16 % 8) == 0)
 			{
 				const float Pitch = 45.f + 110.f * FMath::Exp(-BeatTime / 0.03f);
-				Sample += FMath::Sin(TwoPi * Pitch * BeatTime) * FMath::Exp(-BeatTime / 0.16f) * 0.9f;
+				Sample += FMath::Sin(TwoPi * Pitch * BeatTime) * FMath::Exp(-BeatTime / 0.16f) * (bCalm ? 0.45f : 0.9f);
 			}
 			const float White = Random.FRandRange(-1.f, 1.f);
 			// Clap on two and four.
-			if (Beat16 == 4 || Beat16 == 12)
+			if (!bCalm && (Beat16 == 4 || Beat16 == 12))
 			{
 				Sample += White * FMath::Exp(-StepTime / 0.07f) * 0.45f + FMath::Sin(TwoPi * 190.f * StepTime) * FMath::Exp(-StepTime / 0.05f) * 0.2f;
 			}
 			// Hats on the off-beats, ghosted sixteenths, open on the last.
 			{
 				const bool bOff = (Beat16 % 4) == 2;
-				const float Level = bOff ? 0.22f : ((Beat16 % 2) ? 0.07f : 0.f);
+				const float Level = (bOff ? 0.22f : ((Beat16 % 2) ? 0.07f : 0.f)) * (bCalm ? 0.4f : 1.f);
 				const float Decay = (Beat16 == 14) ? 0.12f : 0.025f;
 				Sample += HatFilter(White) * Level * FMath::Exp(-StepTime / Decay) * 1.6f;
 			}
@@ -550,7 +556,7 @@ namespace
 					Pad += Saw(PadPhase[Voice]);
 				}
 				const float BarTime = static_cast<float>(Index % (Sixteenth * 32)) / Rate;
-				Sample += PadFilter(Pad) * 0.06f * FMath::Min(BarTime / 0.6f, 1.f);
+				Sample += PadFilter(Pad) * (bCalm ? 0.11f : 0.06f) * FMath::Min(BarTime / 0.6f, 1.f);
 			}
 			// Arpeggio: up through the chord, two octaves, every sixteenth.
 			{
@@ -558,10 +564,10 @@ namespace
 				const float Midi = Chords[ChordIndex][Order[Beat16 % 8]] + (Beat16 >= 8 ? 12.f : 0.f);
 				const float Frequency = Note(Midi);
 				Sample += ArpFilter(Square(Frequency * StepTime) * 0.5f + Tri(Frequency * StepTime) * 0.5f)
-					* FMath::Exp(-StepTime / 0.09f) * (bSecondHalf ? 0.13f : 0.18f);
+					* FMath::Exp(-StepTime / 0.09f) * (bCalm ? 0.08f : (bSecondHalf ? 0.13f : 0.18f));
 			}
 			// Hook in the second half.
-			if (bSecondHalf)
+			if (bSecondHalf && !bCalm)
 			{
 				const float Midi = Hook[Beat16] > 0.f ? Hook[Beat16] + ((Bar % 2) && Beat16 >= 8 ? -2.f : 0.f) : 0.f;
 				if (Midi > 0.f)
@@ -575,6 +581,47 @@ namespace
 		}
 		SoftClip(Out, 1.2f);
 		Normalise(Out, 0.8f);
+		return Out;
+	}
+
+	FBuffer MakeCrowd()
+	{
+		// A grandstand on its feet: dozens of voices, each a band of noise
+		// with its own swell, over a broad roar, rising and dying away.
+		FBuffer Out = Silence(4.5f);
+		FRandomStream Random(59);
+		const int32 Voices = 36;
+		TArray<FLowPass> Low;
+		TArray<FHighPass> High;
+		TArray<float> Start, Rate2, Level;
+		for (int32 Voice = 0; Voice < Voices; ++Voice)
+		{
+			const float Centre = Random.FRandRange(400.f, 1800.f);
+			Low.Add(FLowPass(Centre * 1.3f));
+			High.Add(FHighPass(Centre * 0.7f));
+			Start.Add(Random.FRandRange(0.f, 0.8f));
+			Rate2.Add(Random.FRandRange(3.f, 7.f));
+			Level.Add(Random.FRandRange(0.5f, 1.f));
+		}
+		FLowPass Roar(900.f);
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			const float Envelope = FMath::Min(Time / 0.6f, 1.f) * FMath::Exp(-FMath::Max(Time - 1.5f, 0.f) / 1.2f);
+			float Sample = Roar(Random.FRandRange(-1.f, 1.f)) * 0.8f;
+			for (int32 Voice = 0; Voice < Voices; ++Voice)
+			{
+				if (Time < Start[Voice])
+				{
+					continue;
+				}
+				// "Hey!" shapes: each voice pulses at its own rate.
+				const float Pulse = 0.55f + 0.45f * FMath::Sin(TwoPi * Rate2[Voice] * (Time - Start[Voice]));
+				Sample += High[Voice](Low[Voice](Random.FRandRange(-1.f, 1.f))) * Level[Voice] * Pulse * 0.35f;
+			}
+			Out[Index] = Sample * Envelope;
+		}
+		Normalise(Out, 0.7f);
 		return Out;
 	}
 
@@ -621,7 +668,9 @@ namespace
 		case EBoatSound::Wind:      Buffer = MakeWind(); break;
 		case EBoatSound::Sea:       Buffer = MakeSea(); break;
 		case EBoatSound::Gull:      Buffer = MakeGull(); break;
-		case EBoatSound::Music:     Buffer = MakeMusic(); break;
+		case EBoatSound::Music:     Buffer = MakeMusic(false); break;
+		case EBoatSound::MenuMusic: Buffer = MakeMusic(true); break;
+		case EBoatSound::Crowd:     Buffer = MakeCrowd(); break;
 		default:                    Buffer = Silence(0.1f); break;
 		}
 		Slot = ToPcm(Buffer);
@@ -774,19 +823,12 @@ UAudioComponent* UBoatAudioSubsystem::MakeLoop(USceneComponent* AttachTo, EBoatS
 void UBoatAudioSubsystem::ToggleMusic()
 {
 	bMusicOn = !bMusicOn;
-	if (MusicLoop != nullptr)
-	{
-		MusicLoop->SetVolumeMultiplier(bMusicOn ? MusicVolume : 0.f);
-	}
+	// UpdateBeds applies the new level within a frame.
 }
 
 void UBoatAudioSubsystem::SetMusicVolume(float Volume)
 {
 	MusicVolume = FMath::Clamp(FMath::RoundToFloat(Volume * 10.f) / 10.f, 0.f, 1.f);
-	if (MusicLoop != nullptr)
-	{
-		MusicLoop->SetVolumeMultiplier(bMusicOn ? FMath::Max(MusicVolume, 0.001f) : 0.f);
-	}
 	SaveConfig();
 }
 
@@ -824,7 +866,8 @@ void UBoatAudioSubsystem::StartBeds()
 		}
 		return Component;
 	};
-	MusicLoop = MakeBed(EBoatSound::Music, bMusicOn ? MusicVolume : 0.f);
+	MusicLoop = MakeBed(EBoatSound::Music, 0.001f);
+	MenuLoop = MakeBed(EBoatSound::MenuMusic, bMusicOn ? MusicVolume : 0.001f);
 	SeaLoop = MakeBed(EBoatSound::Sea, 0.35f * EffectsVolume);
 	RainLoop = MakeBed(EBoatSound::Rain, 0.f);
 	WindLoop = MakeBed(EBoatSound::Wind, 0.f);
@@ -838,6 +881,20 @@ void UBoatAudioSubsystem::UpdateBeds(float DeltaTime)
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
 	const ERaceWeather Weather = RaceState ? RaceState->GetWeather() : ERaceWeather::Sunny;
 	const FWeatherLook& Look = RaceWeather::Get(Weather);
+
+	// Menu music in the menus and lobby, the race track from the lights
+	// until the results are gone, crossfading over a couple of seconds.
+	const bool bRaceOn = RaceState && RaceState->RaceState != ERaceState::Lobby;
+	RaceMix = FMath::FInterpConstantTo(RaceMix, bRaceOn ? 1.f : 0.f, DeltaTime, 0.5f);
+	const float Music = bMusicOn ? MusicVolume : 0.f;
+	if (MusicLoop != nullptr)
+	{
+		MusicLoop->SetVolumeMultiplier(FMath::Max(Music * RaceMix, 0.001f));
+	}
+	if (MenuLoop != nullptr)
+	{
+		MenuLoop->SetVolumeMultiplier(FMath::Max(Music * (1.f - RaceMix) * 0.85f, 0.001f));
+	}
 
 	const float RainTarget = Look.Precipitation == EPrecipitation::Rain ? (Look.bLightning ? 0.9f : 0.6f) : 0.f;
 	const float WindTarget = FMath::Clamp((Look.Wind - 3.f) / 11.f, 0.f, 1.f) * 0.7f;

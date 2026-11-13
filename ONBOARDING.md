@@ -118,6 +118,10 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 - Pass the gates **in order**. Orange buoys mark the inside of the course,
   white the outside, and the start line is the pair of tall yellow ones. Your
   next gate pulses and the needle at the top of the screen points at it.
+- **Time trial** (title screen): race alone against a see-through ghost of
+  your best lap; each gate shows how far ahead (green) or behind (red) you
+  are. The ghost is kept on your machine between sessions.
+- Turned turtle off a ramp? After a couple of seconds the boat rights itself.
 - Empty seats are taken by computer rivals (Kestrel, Marlin, Barracuda,
   Osprey), so there are always four boats. A friend who joins takes one.
 - Five red lights come on a second apart; when they go out, go.

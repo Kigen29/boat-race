@@ -51,10 +51,12 @@ def ortho(R):
     c2=cross(c0,c1)
     return ((c0[0],c1[0],c2[0]),(c0[1],c1[1],c2[1]),(c0[2],c1[2],c2[2]))
 
-def sim(dt,secs,throttle,steer,rough,report_from=0.0):
+def sim(dt,secs,throttle,steer,rough,report_from=0.0,inverted=False):
     pos=[0.0,0.0,45.0]; vel=[0.0,0.0,0.0]; om=[0.0,0.0,0.0]
-    R=((1,0,0),(0,1,0),(0,0,1))
+    # inverted: start upside down (rolled 180 degrees), as after a bad landing
+    R=((1,0,0),(0,-1,0),(0,0,-1)) if inverted else ((1,0,0),(0,1,0),(0,0,1))
     o=dict(minz=1e9,maxz=-1e9,mp=0,mr=0,sunk=False,settle=None)
+    capsized=0.0
     for n in range(int(secs/dt)):
         t=n*dt
         fwd=(R[0][0],R[1][0],R[2][0]); up=(R[0][2],R[1][2],R[2][2])
@@ -104,15 +106,27 @@ def sim(dt,secs,throttle,steer,rough,report_from=0.0):
         Tq[2]+=math.radians(want-math.degrees(om[2]))*Iz*TURN_RESP
         roll_now=math.atan2(R[2][1],R[2][2])
         roll_rate=sum(om[i]*fH[i] for i in range(3))
-        heel=((math.radians(-steer*MAX_HEEL*sf)-roll_now)*HEEL-roll_rate*2.0)*Ix*contact
+        tilt_now=math.degrees(math.acos(max(-1.0,min(1.0,up[2]))))
+        # the lean controller is for small angles only; past 60 degrees it
+        # would fight the righting torque
+        heel=((math.radians(-steer*MAX_HEEL*sf)-roll_now)*HEEL-roll_rate*2.0)*Ix*contact if tilt_now<60.0 else 0.0
         heel=max(-Ix*12.0,min(Ix*12.0,heel))
         for i in range(3): Tq[i]+=fH[i]*heel
         tilt=math.degrees(math.acos(max(-1.0,min(1.0,up[2]))))
         if tilt>SELF_RIGHT:
-            ax=cross(up,(0,0,1)); nn=math.sqrt(sum(a*a for a in ax)) or 1.0
+            ax=cross(up,(0,0,1)); nn=math.sqrt(sum(a*a for a in ax))
+            if nn<0.1: ax=fwd; nn=1.0   # fully inverted: roll about the keel
             st=min(1.0,(tilt-SELF_RIGHT)/110.0)
             for i in range(3): Tq[i]+=ax[i]/nn*(Iz*2.2*st)
         # rigid-body angular acceleration with the inertia tensor in world space
+        # Capsize recovery, as in BoatPawn: buoyancy holds an upside-down hull
+        # upside down (like a raft), so after 2.5 s the boat is set upright.
+        capsized = capsized + dt if tilt_now > 100.0 else 0.0
+        if capsized > 2.5:
+            yaw=math.atan2(fwd[1],fwd[0]); c,s_=math.cos(yaw),math.sin(yaw)
+            R=((c,-s_,0),(s_,c,0),(0,0,1)); om=[0.0,0.0,0.0]; vel=[vel[0]*0.3,vel[1]*0.3,0.0]
+            pos[2]=max(pos[2],45.0); capsized=0.0
+            continue
         tb=mv(T(R),Tq)
         ab=[tb[i]/IB[i] for i in range(3)]
         alpha=mv(R,ab)
@@ -129,6 +143,7 @@ def sim(dt,secs,throttle,steer,rough,report_from=0.0):
         if pos[2]<-400: o['sunk']=True; break
         if o['settle'] is None and t>0.5 and abs(vel[2])<2.0 and rough==0: o['settle']=t
     o['speed']=math.hypot(vel[0],vel[1]); o['yaw']=math.degrees(om[2]); o['z']=pos[2]
+    o['up']=R[2][2]
     return o
 
 fail=0
@@ -156,4 +171,6 @@ for dt,lab in ((1/120,"120fps"),(1/60,"60fps"),(1/30,"30fps"),(1/20,"20fps")):
     if r['sunk'] or r['mr']>65: fail+=1; print("     FAIL")
 r=sim(1/60,60,1.0,0.3,2.0,30); print("7 storm (rough=2) speed %.0f  pitch %.0f  roll %.0f  z %.0f..%.0f  sunk=%s"%(r['speed'],r['mp'],r['mr'],r['minz'],r['maxz'],r['sunk']))
 if r['sunk']: fail+=1; print("  FAIL")
+r=sim(1/60,10,0,0,1.0,inverted=True); print("8 capsized, sea   upright %.2f after 10 s (1 = level)  sunk=%s"%(r['up'],r['sunk']))
+if r['up']<0.8: fail+=1; print("  FAIL: the boat does not right itself from upside down")
 print("\nFAILURES: %d"%fail)

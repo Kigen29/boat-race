@@ -2,6 +2,8 @@
 
 #include "BayTerrain.h"
 #include "BoatAudio.h"
+#include "BoatGhost.h"
+#include "BoatRacePlayerState.h"
 #include "BoatPawn.h"
 #include "BoatPrefs.h"
 #include "BoatProjectile.h"
@@ -94,6 +96,8 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 		SyncCursor();
 		return;
 	}
+
+	UpdateTimeTrial(DeltaTime);
 
 	if (FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")))
 	{
@@ -257,6 +261,9 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 	case EMenuScreen::Main:
 	{
 		Add(TEXT("Solo race"), EMenuAction::Solo, TEXT("Race three computer rivals"));
+		Add(TEXT("Time trial"), EMenuAction::TimeTrial, GetGhostLapTime() > 0.f
+			? FString::Printf(TEXT("Beat your ghost: best lap %d:%05.2f"), FMath::FloorToInt(GetGhostLapTime() / 60.f), FMath::Fmod(GetGhostLapTime(), 60.f))
+			: FString(TEXT("Set a lap; then race its ghost")));
 		Add(TEXT("Host a race"), EMenuAction::Host, TEXT("Friends on your Wi-Fi can join you"));
 		const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
 		const TArray<FFoundRace> NoRaces;
@@ -466,6 +473,10 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		ServerRequestStart();
 		OpenMenu(EMenuScreen::None);
 		break;
+	case EMenuAction::TimeTrial:
+		ServerRequestTimeTrial();
+		OpenMenu(EMenuScreen::None);
+		break;
 	case EMenuAction::Host:
 		HostRace();
 		break;
@@ -632,6 +643,115 @@ void ABoatRacePlayerController::ServerRequestStart_Implementation()
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
 		RaceMode->RequestStartRace(this);
+	}
+}
+
+void ABoatRacePlayerController::ServerRequestTimeTrial_Implementation()
+{
+	UWorld* World = GetWorld();
+	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
+	{
+		RaceMode->RequestStartRace(this, false, true);
+	}
+}
+
+float ABoatRacePlayerController::GetGhostLapTime() const
+{
+	if (!BestGhost.IsValid())
+	{
+		TSharedPtr<FGhostLap> Loaded = MakeShared<FGhostLap>();
+		if (Loaded->Load())
+		{
+			const_cast<ABoatRacePlayerController*>(this)->BestGhost = Loaded;
+		}
+	}
+	return BestGhost.IsValid() ? BestGhost->LapTime : 0.f;
+}
+
+bool ABoatRacePlayerController::GetGhostDelta(float& OutDelta, float& OutAge) const
+{
+	OutDelta = GhostDelta;
+	OutAge = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) - GhostDeltaAt : 100.f;
+	return bGhostDeltaValid;
+}
+
+void ABoatRacePlayerController::UpdateTimeTrial(float DeltaTime)
+{
+	UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
+	const APawn* Boat = GetPawn();
+	const bool bActive = RaceState && RaceState->bTimeTrial && RaceState->RaceState == ERaceState::Racing && Racer && Boat;
+	if (!bActive)
+	{
+		GhostSeenLaps = -1;
+		Recording.Reset();
+		if (Ghost != nullptr)
+		{
+			Ghost->Show(nullptr, 0.f);
+		}
+		return;
+	}
+	GetGhostLapTime(); // loads the saved ghost the first time
+	if (Ghost == nullptr)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Ghost = World->SpawnActor<AGhostBoat>(AGhostBoat::StaticClass(), FTransform::Identity, Params);
+	}
+
+	const float Now = RaceState->GetRaceTime();
+	// A new lap begins each time the start line is crossed.
+	if (Racer->LapsCompleted != GhostSeenLaps)
+	{
+		if (Recording.IsValid() && GhostSeenLaps >= 0 && Racer->LapsCompleted > GhostSeenLaps)
+		{
+			Recording->LapTime = Now - GhostLapStart;
+			const bool bBetter = !BestGhost.IsValid() || Recording->LapTime < BestGhost->LapTime;
+			if (bBetter && Recording->IsValid())
+			{
+				BestGhost = Recording;
+				BestGhost->Save();
+				UE_LOG(LogBoatRace, Log, TEXT("New ghost saved: lap of %.2f s, %d samples."), BestGhost->LapTime, BestGhost->Times.Num());
+			}
+		}
+		GhostSeenLaps = Racer->LapsCompleted;
+		GhostLapStart = Now;
+		GhostSeenGate = Racer->NextGate;
+		GhostRecordClock = 0.f;
+		Recording = MakeShared<FGhostLap>();
+		Recording->Splits.Init(-1.f, BoatTrack::NumGates());
+	}
+	const float IntoLap = Now - GhostLapStart;
+
+	// Record ten times a second.
+	GhostRecordClock -= DeltaTime;
+	if (Recording.IsValid() && GhostRecordClock <= 0.f && Racer->LapsCompleted >= 0)
+	{
+		GhostRecordClock = 0.1f;
+		Recording->Times.Add(IntoLap);
+		Recording->Locations.Add(Boat->GetActorLocation());
+		Recording->Rotations.Add(Boat->GetActorRotation());
+	}
+	// Splits: ahead or behind the ghost at every gate.
+	if (Racer->NextGate != GhostSeenGate)
+	{
+		const int32 Passed = GhostSeenGate;
+		GhostSeenGate = Racer->NextGate;
+		if (Recording.IsValid() && Recording->Splits.IsValidIndex(Passed))
+		{
+			Recording->Splits[Passed] = IntoLap;
+		}
+		if (BestGhost.IsValid() && BestGhost->Splits.IsValidIndex(Passed) && BestGhost->Splits[Passed] >= 0.f && Passed != 0)
+		{
+			GhostDelta = IntoLap - BestGhost->Splits[Passed];
+			GhostDeltaAt = static_cast<float>(World->GetTimeSeconds());
+			bGhostDeltaValid = true;
+		}
+	}
+	if (Ghost != nullptr)
+	{
+		Ghost->Show(Racer->LapsCompleted >= 0 && BestGhost.IsValid() ? BestGhost.Get() : nullptr, IntoLap);
 	}
 }
 
