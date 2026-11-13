@@ -1,5 +1,6 @@
 #include "BoatRaceHUD.h"
 
+#include "BayTerrain.h"
 #include "BoatAudio.h"
 #include "BoatPawn.h"
 #include "BoatPrefs.h"
@@ -263,6 +264,25 @@ void ABoatRaceHUD::DrawHUD()
 	{
 		DrawLabel(TEXT("Connecting..."), Width * 0.5f, Height * 0.45f, 2.f * Scale, Ink, 0.5f, true);
 		return;
+	}
+
+	// Photo mode: a clean frame, only a small hint along the bottom.
+	if (const ABoatRacePlayerController* Photographer = Cast<ABoatRacePlayerController>(GetOwningPlayerController()))
+	{
+		if (Photographer->IsInPhotoMode())
+		{
+			MenuRects.Reset();
+			if (Photographer->GetSecondsSincePhoto() < 2.f)
+			{
+				DrawLabel(TEXT("Saved to Saved/Screenshots"), Width * 0.5f, Height - 70.f * Scale, 1.2f * Scale, Ink, 0.5f);
+			}
+			else if (FMath::Fmod(static_cast<float>(GetWorld()->GetRealTimeSeconds()), 30.f) < 6.f)
+			{
+				DrawLabel(TEXT("PHOTO MODE     WASD fly   mouse look   Q/E down/up   SHIFT fast   F12 save   ESC back"),
+					Width * 0.5f, Height - 40.f * Scale, 1.f * Scale, Dim, 0.5f);
+			}
+			return;
+		}
 	}
 
 	TArray<FStanding> Standings;
@@ -865,6 +885,44 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	DrawLabel(FString::FromInt(Mines), RightX, Y, 1.4f * Scale, Mines > 0 ? Ink : Faint, 1.f);
 }
 
+void ABoatRaceHUD::BuildMapLand(double Biggest)
+{
+	// One pixel per few metres of the map square, land shaded by height,
+	// water left clear so the panel's sea blue shows through.
+	const int32 Size = 128;
+	MapLand = UTexture2D::CreateTransient(Size, Size, PF_B8G8R8A8);
+	if (MapLand == nullptr)
+	{
+		return;
+	}
+	MapLand->Filter = TF_Bilinear;
+	FColor* Pixels = static_cast<FColor*>(MapLand->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE));
+	for (int32 Row = 0; Row < Size; ++Row)
+	{
+		for (int32 Column = 0; Column < Size; ++Column)
+		{
+			// The inverse of the map's projection: rows run down from +X, columns across +Y.
+			const double U = 1.0 - (Row + 0.5) / Size;
+			const double V = (Column + 0.5) / Size;
+			const double X = (MapMin.X + U * Biggest) / 100.0;
+			const double Y = (MapMin.Y + V * Biggest) / 100.0;
+			const float Height = BayTerrain::GetHeightMetres(X, Y);
+			FColor Colour(0, 0, 0, 0);
+			if (Height > -0.3f)
+			{
+				const float T = FMath::Clamp((Height - 60.f) / 120.f, 0.f, 1.f);
+				const FLinearColor Land = Height < 2.5f ? FLinearColor(0.85f, 0.78f, 0.55f)
+					: FMath::Lerp(FLinearColor(0.32f, 0.55f, 0.24f), FLinearColor(0.42f, 0.4f, 0.36f), T);
+				Colour = Land.ToFColor(true);
+				Colour.A = 230;
+			}
+			Pixels[Row * Size + Column] = Colour;
+		}
+	}
+	MapLand->GetPlatformData()->Mips[0].BulkData.Unlock();
+	MapLand->UpdateResource();
+}
+
 void ABoatRaceHUD::DrawMiniMap(const TArray<FStanding>& Standings, const ABoatRacePlayerState* Me, float Width, float Height, float Scale)
 {
 	if (!bShowMiniMap)
@@ -898,11 +956,21 @@ void ABoatRaceHUD::DrawMiniMap(const TArray<FStanding>& Standings, const ABoatRa
 	const float BoxSize = 200.f * Scale;
 	const float BoxX = Width - BoxSize - 40.f * Scale;
 	const float BoxY = 40.f * Scale;
-	DrawRect(Panel, BoxX, BoxY, BoxSize, BoxSize);
+	DrawRect(FLinearColor(0.02f, 0.12f, 0.2f, 0.7f), BoxX, BoxY, BoxSize, BoxSize);
 
 	// Keep the circuit's proportions inside the square.
 	const FVector2D Span = MapMax - MapMin;
 	const double Biggest = FMath::Max(Span.X, Span.Y);
+
+	// The coast: beaches, cliffs, the narrows and the barge channels.
+	if (MapLand == nullptr)
+	{
+		BuildMapLand(Biggest);
+	}
+	if (MapLand != nullptr)
+	{
+		DrawTexture(MapLand.Get(), BoxX, BoxY, BoxSize, BoxSize, 0.f, 0.f, 1.f, 1.f, FLinearColor::White, BLEND_Translucent);
+	}
 	auto ToScreen = [&](const FVector2D& World)
 	{
 		const double U = (World.X - MapMin.X) / Biggest;

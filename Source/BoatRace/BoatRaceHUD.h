@@ -99,6 +99,11 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTexture2D> TitleTexture;
 
+	/** The land, drawn once into a little texture for the map. */
+	UPROPERTY()
+	TObjectPtr<UTexture2D> MapLand;
+	void BuildMapLand(double Biggest);
+
 	/** Circuit bounds, worked out once for the map. */
 	FString BannerText;
 	FLinearColor BannerColor = FLinearColor::White;

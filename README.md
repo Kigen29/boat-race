@@ -63,6 +63,7 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 | R | Back to your last gate |
 | SHIFT / RB | Boost (fills slowly, and fast while airborne off a ramp) |
 | C / B | Cycle camera view / look behind |
+| Pause menu > Photo mode | Free camera with no HUD: WASD fly, mouse look, Q/E down/up, SHIFT fast, F12 save a picture, ESC back |
 | ESC | Pause menu: resume, restart, back to last gate, settings, controls, leave, quit |
 | Arrows / mouse | Move through menus; ENTER or click to choose; left / right change a value |
 | ENTER | Host: start the race |

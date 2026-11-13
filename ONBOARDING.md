@@ -103,7 +103,7 @@ the game changes, or the versions will not match.
 | R | Back to your last gate |
 | SHIFT | Boost |
 | C / B | Camera view / look behind |
-| ESC | Pause menu (also: settings, controls, leave, quit) |
+| ESC | Pause menu (also: photo mode, settings, controls, leave, quit) |
 | ENTER | Host only: start the race |
 | TAB | Host, in the lobby: change the weather |
 | M | Music on / off |

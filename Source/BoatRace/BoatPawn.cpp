@@ -1507,7 +1507,16 @@ void ABoatPawn::BuildEffects()
 	ShieldBubble->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ShieldBubble->SetCastShadow(false);
 	ShieldBubble->RegisterComponent();
-	ShieldMaterial = BoatArt::SoftMaterial(ShieldBubble, FLinearColor(0.3f, 1.4f, 2.f), 0.f);
+	// Glass is clear head-on and bright at grazing angles: a force field's rim.
+	if (UMaterialInterface* Glass = BoatArt::Material(TEXT("M_Glass")))
+	{
+		ShieldMaterial = UMaterialInstanceDynamic::Create(Glass, ShieldBubble);
+		ShieldMaterial->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.2f, 0.9f, 1.4f));
+	}
+	else
+	{
+		ShieldMaterial = BoatArt::SoftMaterial(ShieldBubble, FLinearColor(0.3f, 1.4f, 2.f), 0.f);
+	}
 	ShieldBubble->SetMaterial(0, ShieldMaterial);
 	ShieldBubble->SetVisibility(false);
 
@@ -1770,7 +1779,10 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 		ShieldBubble->SetVisibility(bShielded);
 		if (bShielded)
 		{
-			BoatArt::SetPuff(ShieldMaterial, FLinearColor(0.3f, 1.4f, 2.f), 0.18f + 0.08f * FMath::Sin(Now * 6.f));
+			if (ShieldMaterial != nullptr)
+			{
+				ShieldMaterial->SetScalarParameterValue(TEXT("Opacity"), 0.04f + 0.03f * FMath::Sin(Now * 6.f));
+			}
 		}
 	}
 

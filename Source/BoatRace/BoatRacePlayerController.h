@@ -36,6 +36,7 @@ enum class EMenuAction : uint8
 	Settings,
 	Controls,
 	Resume,
+	PhotoMode,
 	StartRace,
 	Restart,
 	ResetBoat,
@@ -76,7 +77,12 @@ public:
 	const FString& GetTypedAddress() const { return TypedAddress; }
 
 	/** Any menu is open: the boat ignores the driving keys meanwhile. */
-	bool IsMenuOpen() const { return MenuScreen != EMenuScreen::None || bTypingAddress; }
+	bool IsMenuOpen() const { return MenuScreen != EMenuScreen::None || bTypingAddress || bPhotoMode; }
+
+	/** Free camera for screenshots: no HUD, game paused when playing solo. */
+	bool IsInPhotoMode() const { return bPhotoMode; }
+	/** Seconds since the last photo was saved (for the HUD's note). */
+	float GetSecondsSincePhoto() const { return PhotoClock; }
 	EMenuScreen GetMenuScreen() const { return MenuScreen; }
 	int32 GetMenuSelection() const { return MenuSelection; }
 
@@ -120,6 +126,15 @@ private:
 	void RunPhotoTour(float DeltaTime);
 
 	void UpdateTimeTrial(float DeltaTime);
+	void EnterPhotoMode();
+	void ExitPhotoMode();
+	void UpdatePhotoMode(float DeltaTime);
+
+	bool bPhotoMode = false;
+	float PhotoClock = 100.f;
+	int32 PhotoCount = 0;
+	UPROPERTY()
+	TObjectPtr<class ACameraActor> PhotoCamera;
 	void HandleMenuInput();
 	void ActivateMenuItem(const FMenuItem& Item, int32 Step);
 	void OpenMenu(EMenuScreen Screen);

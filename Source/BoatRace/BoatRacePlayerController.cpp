@@ -3,6 +3,8 @@
 #include "BayTerrain.h"
 #include "BoatAudio.h"
 #include "BoatGhost.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "BoatRacePlayerState.h"
 #include "BoatPawn.h"
 #include "BoatPrefs.h"
@@ -116,10 +118,42 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 			}
 		}
 	}
-	if (ShotTimes.Num() > 0 && GetWorld() && GetWorld()->GetTimeSeconds() >= ShotTimes[0])
+	// Real time, so it still fires while the game is paused (photo mode).
+	if (ShotTimes.Num() > 0 && GetWorld() && GetWorld()->GetRealTimeSeconds() >= ShotTimes[0])
 	{
 		FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("Shot_%03d"), FMath::RoundToInt(ShotTimes[0])), true, false);
 		ShotTimes.RemoveAt(0);
+	}
+
+	// Test hooks: -TestPhoto=S enters photo mode S seconds in; -TestShield
+	// shields the player's boat once the race is on.
+	static float TestPhotoAt = -2.f;
+	if (TestPhotoAt == -2.f && !FParse::Value(FCommandLine::Get(), TEXT("TestPhoto="), TestPhotoAt))
+	{
+		TestPhotoAt = -1.f;
+	}
+	if (TestPhotoAt > 0.f && GetWorld()->GetTimeSeconds() >= TestPhotoAt)
+	{
+		TestPhotoAt = -1.f;
+		EnterPhotoMode();
+	}
+	if (FParse::Param(FCommandLine::Get(), TEXT("TestShield")) && HasAuthority())
+	{
+		const ABoatRaceGameState* ShieldState = GetWorld()->GetGameState<ABoatRaceGameState>();
+		if (ABoatPawn* ShieldBoat = Cast<ABoatPawn>(GetPawn()))
+		{
+			if (ShieldState && ShieldState->RaceState == ERaceState::Racing && !ShieldBoat->IsInvulnerable())
+			{
+				ShieldBoat->GrantShield(30.f);
+			}
+		}
+	}
+
+	if (bPhotoMode)
+	{
+		UpdatePhotoMode(DeltaTime);
+		SyncCursor();
+		return;
 	}
 
 	if (FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")))
@@ -232,8 +266,8 @@ void ABoatRacePlayerController::OpenMenu(EMenuScreen Screen)
 
 void ABoatRacePlayerController::SyncCursor()
 {
-	// A mouse pointer whenever a menu is up, none while driving.
-	const bool bWant = IsMenuOpen();
+	// A mouse pointer whenever a menu is up, none while driving or framing a photo.
+	const bool bWant = IsMenuOpen() && !bPhotoMode;
 	if (bWant == bCursorShown)
 	{
 		return;
@@ -315,6 +349,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 	}
 	case EMenuScreen::Pause:
 		Add(TEXT("Resume"), EMenuAction::Resume);
+		Add(TEXT("Photo mode"), EMenuAction::PhotoMode, TEXT("Free camera, no HUD; F12 saves a picture"));
 		if (bHost && !bRacing)
 		{
 			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
@@ -559,6 +594,10 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 	case EMenuAction::Resume:
 		OpenMenu(EMenuScreen::None);
 		break;
+	case EMenuAction::PhotoMode:
+		OpenMenu(EMenuScreen::None);
+		EnterPhotoMode();
+		break;
 	case EMenuAction::Restart:
 		ServerRequestRestart();
 		OpenMenu(EMenuScreen::None);
@@ -671,6 +710,98 @@ void ABoatRacePlayerController::ServerRequestStart_Implementation()
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
 		RaceMode->RequestStartRace(this);
+	}
+}
+
+void ABoatRacePlayerController::EnterPhotoMode()
+{
+	UWorld* World = GetWorld();
+	if (World == nullptr || bPhotoMode)
+	{
+		return;
+	}
+	FVector Location;
+	FRotator Rotation;
+	GetPlayerViewPoint(Location, Rotation);
+	if (PhotoCamera == nullptr)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		PhotoCamera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), Location, Rotation, Params);
+	}
+	if (PhotoCamera == nullptr)
+	{
+		return;
+	}
+	PhotoCamera->SetActorLocationAndRotation(Location, Rotation);
+	PhotoCamera->GetCameraComponent()->SetFieldOfView(70.f);
+	PhotoCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+	// Sharp stills: no motion blur (the jump from the boat camera reads as
+	// huge motion), and no film grain.
+	FPostProcessSettings& Post = PhotoCamera->GetCameraComponent()->PostProcessSettings;
+	Post.bOverride_MotionBlurAmount = true;
+	Post.MotionBlurAmount = 0.f;
+	Post.bOverride_FilmGrainIntensity = true;
+	Post.FilmGrainIntensity = 0.f;
+	PhotoCamera->GetCameraComponent()->PostProcessBlendWeight = 1.f;
+	SetViewTarget(PhotoCamera);
+	bPhotoMode = true;
+	PhotoClock = 100.f;
+	// Freeze the moment when racing alone; others cannot be paused. The
+	// controller has to keep ticking while paused, or the camera would freeze too.
+	bShouldPerformFullTickWhenPaused = true;
+	if (GetNetMode() == NM_Standalone)
+	{
+		UGameplayStatics::SetGamePaused(this, true);
+	}
+}
+
+void ABoatRacePlayerController::ExitPhotoMode()
+{
+	bPhotoMode = false;
+	if (GetNetMode() == NM_Standalone)
+	{
+		UGameplayStatics::SetGamePaused(this, false);
+	}
+	if (GetPawn() != nullptr)
+	{
+		SetViewTarget(GetPawn());
+	}
+}
+
+void ABoatRacePlayerController::UpdatePhotoMode(float DeltaTime)
+{
+	PhotoClock += DeltaTime;
+	if (PhotoCamera == nullptr || WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
+	{
+		ExitPhotoMode();
+		return;
+	}
+	// Mouse or right stick to look; WASD or left stick to fly; Q/E down and up.
+	float LookX = 0.f, LookY = 0.f;
+	GetInputMouseDelta(LookX, LookY);
+	LookX += GetInputAnalogKeyState(EKeys::Gamepad_RightX) * 120.f * DeltaTime;
+	LookY += GetInputAnalogKeyState(EKeys::Gamepad_RightY) * 120.f * DeltaTime;
+	FRotator Rotation = PhotoCamera->GetActorRotation();
+	Rotation.Yaw += LookX * 0.6f;
+	Rotation.Pitch = FMath::Clamp(Rotation.Pitch + LookY * 0.6f, -85.f, 85.f);
+	Rotation.Roll = 0.f;
+
+	FVector Move = FVector::ZeroVector;
+	Move.X += (IsInputKeyDown(EKeys::W) ? 1.f : 0.f) - (IsInputKeyDown(EKeys::S) ? 1.f : 0.f) + GetInputAnalogKeyState(EKeys::Gamepad_LeftY);
+	Move.Y += (IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (IsInputKeyDown(EKeys::A) ? 1.f : 0.f) + GetInputAnalogKeyState(EKeys::Gamepad_LeftX);
+	Move.Z += (IsInputKeyDown(EKeys::E) ? 1.f : 0.f) - (IsInputKeyDown(EKeys::Q) ? 1.f : 0.f);
+	const float Speed = (IsInputKeyDown(EKeys::LeftShift) ? 6000.f : 1500.f) * DeltaTime;
+	FVector Location = PhotoCamera->GetActorLocation()
+		+ (Rotation.Vector() * Move.X + FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y) * Move.Y + FVector::UpVector * Move.Z) * Speed;
+	Location.Z = FMath::Max(Location.Z, 60.0); // never under the water
+	PhotoCamera->SetActorLocationAndRotation(Location, Rotation);
+
+	if (WasInputKeyJustPressed(EKeys::F12) || WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
+	{
+		FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("BoatRace_Photo_%03d"), ++PhotoCount), false, true);
+		PhotoClock = 0.f;
+		BoatAudio::Play2D(this, EBoatSound::Beep, 0.4f, 2.f);
 	}
 }
 
