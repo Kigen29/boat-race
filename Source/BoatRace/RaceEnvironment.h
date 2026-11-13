@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "BoatWake.h"
 #include "RaceWeather.h"
 #include "RaceEnvironment.generated.h"
 
@@ -126,6 +127,9 @@ private:
 	void BuildStartGantry();
 	void BuildSky();
 	void BuildIceFloes();
+	void BuildTraffic();
+	void UpdateTraffic(float Seconds, float DeltaSeconds);
+	void ApplyGrade(const FWeatherLook& Look);
 	void SpawnServerActors();
 	void UpdateFloatingPieces(float Seconds);
 	void UpdateRopes(float Seconds);
@@ -233,6 +237,29 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> IceFloes;
+
+	/** A boat going about its business off the course: a stadium-shaped
+	 *  lap of open water, driven by the shared clock so every player sees it
+	 *  in the same place. */
+	struct FTrafficBoat
+	{
+		FVector2D Centre;
+		FVector2D Along;
+		float Straight = 0.f;   // cm, half the straight
+		float Radius = 0.f;     // cm, the turn at each end
+		float Speed = 0.f;      // cm/s
+		float Phase = 0.f;      // cm along the lap at time zero
+		float ModelYaw = 0.f;
+		TObjectPtr<UStaticMeshComponent> Look;
+		TObjectPtr<UStaticMeshComponent> Solid;
+		TObjectPtr<class UAudioComponent> Engine;
+		float Length = 0.f;
+		FBoatWakeTrail Wake;
+	};
+	TArray<FTrafficBoat> Traffic;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UObject>> TrafficRefs;
 
 	TArray<FFloatingPiece> FloatingPieces;
 	int32 HighlightedGate = -1;

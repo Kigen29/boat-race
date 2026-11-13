@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "BoatWake.h"
 #include "Engine/NetSerialization.h"
 #include "GameFramework/Pawn.h"
 #include "BoatPawn.generated.h"
@@ -89,6 +90,9 @@ public:
 	void Revive(float InvulnerableSeconds);
 
 	void GiveAmmo(int32 Torpedoes, int32 Mines);
+
+	/** -PhotoTour only: swing the camera round to look at the boat. */
+	void SetShowcaseCamera(bool bShowcase);
 
 	/** For a computer driver: the throttle and rudder it would get from the keys. */
 	void SetDriverInput(float Throttle, float Steer);
@@ -408,6 +412,15 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> RoosterTail;
+
+	/** Sheets of spray thrown off each side of the bow at speed. */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> SpraySheets;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> SprayMaterials;
+
+	FBoatWakeTrail Wake;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> RoosterMaterial;

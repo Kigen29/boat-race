@@ -53,7 +53,8 @@ If it says files differ, `git restore .` takes the repository's version.
 | File | Job |
 |---|---|
 | `BayTerrain` | The land: one height function from the shore table in `BoatTrackData.h`. Builds the mesh (solid near the course), plants trees and rocks, places the grandstand, cottages, lighthouse, bridge and duck, and tells boats which way the water is |
-| `BoatArt` | Loads `/Game/Models/SM_*` and repaints every material slot from the hex colour in its name (`Leaf_5CB646`). `Paint_*` slots take a player's or buoy's colour, `Lamp*` glow; snow and night are tints |
+| `BoatArt` | Loads `/Game/Models/SM_*` and gives every material slot a finish from its name (`Leaf_5CB646`): the part decides the master material (clear-coat `M_Paint`, livery `M_Livery`, grained `M_Surface` for metal/rubber/wood/rock, `M_Glass`, `M_Foam`) and the hex its colour. `Paint_*`/`Livery*` take a player's colour, `Lamp*` glow; snow and night are tints |
+| `BoatWake` | The wake ribbon: white water behind the transom plus the two Kelvin arms (19.5°), laid down by distance travelled and drawn on the waves |
 | `RaceWeather` | The nine weathers as data, plus wind and lightning timing from the shared clock. The host's choice is one replicated byte on the game state |
 | `BoatAudio` | Every sound synthesised in code at startup (no audio files) and played through procedural waves; a world subsystem runs the music, rain, wind and sea beds |
 | `BoatRivalController` | Computer rivals: an AI controller with a player state that drives the boat by setting its throttle and rudder |
@@ -77,7 +78,9 @@ If it says files differ, `git restore .` takes the repository's version.
   sent over the network.
 - **The owner simulates its own boat; everyone else holds a kinematic copy.**
   The server counts gates from reported positions and decides all damage.
-- **Models are made in Blender by `Scripts/make_models.py`,** never by hand:
+- **Models are made in Blender by `Scripts/make_models.py`** (boats in
+  `Scripts/make_boats.py`: subdivision hulls with strakes, chines, steps and
+  a livery texture in `Art/Textures`), never by hand:
   metres, +X forward, origin at the waterline, materials named `Part_RRGGBB`.
   Anything solid gets a plain invisible collision shape; the model is looks only.
 - **Tuning lives in `Config/DefaultGame.ini`,** not in code. Every handling

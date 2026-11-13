@@ -72,6 +72,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> FarMaterial;
 
+	/** Grid centre the shore foam was last worked out for. */
+	FVector2D FoamCentre = FVector2D(1.e12, 1.e12);
+
 	FVector2D GridCentre = FVector2D::ZeroVector;
 	float TimeSinceRefresh = 0.f;
 	bool bGridBuilt = false;

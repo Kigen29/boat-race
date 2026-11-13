@@ -138,9 +138,10 @@ ABoatPawn::ABoatPawn()
 	// pitch, so a wave or a barrel roll does not throw the view around.
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(Hull);
-	SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 190.f));
-	SpringArm->SetRelativeRotation(FRotator(-14.f, 0.f, 0.f));
-	SpringArm->TargetArmLength = 1450.f;
+	// Low and close behind, so the water rushes past and the bow fills the view.
+	SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 230.f));
+	SpringArm->SetRelativeRotation(FRotator(-9.f, 0.f, 0.f));
+	SpringArm->TargetArmLength = 1150.f;
 	SpringArm->bDoCollisionTest = false;
 	SpringArm->bEnableCameraLag = true;
 	SpringArm->CameraLagSpeed = 7.f;
@@ -1042,7 +1043,7 @@ void ABoatPawn::UpdateCosmetics(float DeltaSeconds)
 		// A touch more field of view with speed, and the camera pulls back.
 		const float SpeedFraction = FMath::Clamp(FMath::Abs(GetForwardSpeed()) / ReferenceTopSpeed, 0.f, 1.f);
 		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, 85.f + 13.f * SpeedFraction, DeltaSeconds, 2.f));
-		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, 1450.f + 220.f * SpeedFraction, DeltaSeconds, 2.f);
+		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, 1150.f + 250.f * SpeedFraction, DeltaSeconds, 2.f);
 
 		// A jolt for crashes, landings and nearby blasts, plus a faint buzz at speed.
 		CameraShake = FMath::Max(CameraShake - DeltaSeconds * 1.8f, 0.f);
@@ -1129,6 +1130,12 @@ void ABoatPawn::TryLoadCustomMesh()
 	BowMesh->SetVisibility(false);
 	CabinMesh->SetVisibility(false);
 	EngineMesh->SetVisibility(false);
+	if (bBlenderBoat)
+	{
+		// The real boat carries its colour in its livery; no placeholder flag.
+		FlagPoleMesh->SetVisibility(false);
+		FlagMesh->SetVisibility(false);
+	}
 	bUsingCustomMesh = true;
 
 	UE_LOG(LogBoatRace, Log, TEXT("Using the %s boat model (scale %.3f, yaw %.0f, %.0f cm long)."),
@@ -1138,6 +1145,14 @@ void ABoatPawn::TryLoadCustomMesh()
 // ---------------------------------------------------------------------------
 // Computer drivers
 // ---------------------------------------------------------------------------
+void ABoatPawn::SetShowcaseCamera(bool bShowcase)
+{
+	// A three-quarter view from ahead and to the side, for the photo tour.
+	SpringArm->bInheritYaw = true;
+	SpringArm->SetRelativeRotation(bShowcase ? FRotator(-6.f, 145.f, 0.f) : FRotator(-9.f, 0.f, 0.f));
+	SpringArm->bEnableCameraRotationLag = !bShowcase;
+}
+
 void ABoatPawn::SetDriverInput(float Throttle, float Steer)
 {
 	InputThrottle = FMath::Clamp(Throttle, -1.f, 1.f);
@@ -1326,6 +1341,31 @@ void ABoatPawn::BuildEffects()
 		PuffMaterials.Add(Material);
 	}
 
+	Wake.Init(this);
+
+	// Bow spray: two fans of white water, mirrored, thrown aft and outwards.
+	if (UStaticMesh* Sheet = BoatArt::Model(TEXT("SpraySheet")))
+	{
+		for (const float Side : { 1.f, -1.f })
+		{
+			UStaticMeshComponent* Spray = NewObject<UStaticMeshComponent>(this);
+			Spray->SetStaticMesh(Sheet);
+			Spray->SetupAttachment(VisualRoot);
+			Spray->SetRelativeLocation(FVector(170.f, Side * 95.f, -35.f));
+			// Thrown aft and outwards, and tipped up so it stands as a sheet.
+			Spray->SetRelativeRotation(FRotator(4.f, Side * 140.f, Side * 22.f));
+			Spray->SetRelativeScale3D(FVector(1.f, Side, 1.f) * BoatArt::UnitScale(Sheet, 0.9f));
+			Spray->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Spray->SetCastShadow(false);
+			Spray->RegisterComponent();
+			const TArray<UMaterialInstanceDynamic*> Painted = BoatArt::Paint(Spray);
+			UMaterialInstanceDynamic* Material = Cast<UMaterialInstanceDynamic>(Spray->GetMaterial(0));
+			Spray->SetVisibility(false);
+			SpraySheets.Add(Spray);
+			SprayMaterials.Add(Material);
+		}
+	}
+
 	// The rooster tail the outboard throws up at speed.
 	RoosterTail = NewObject<UStaticMeshComponent>(this);
 	RoosterTail->SetStaticMesh(Cone);
@@ -1427,30 +1467,46 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 	// Foam is unlit, so match it to the light: bright in sun, dim at night.
 	const ABoatRaceGameState* WeatherState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
 	const FWeatherLook& Light = RaceWeather::Get(WeatherState ? WeatherState->GetWeather() : ERaceWeather::Sunny);
-	const float Foam = Light.bNight ? 0.12f : FMath::Clamp(Light.SunIntensity / 7.f + Light.SkyIntensity * 0.25f, 0.35f, 1.6f);
+	const float Foam = Light.FoamBrightness;
 
 	// --- Wake and spray, in proportion to speed. The wake is flat foam left
 	// lying on the water behind the transom; the bow throws small, short-lived
 	// sheets of spray out to the sides.
 	if (bInWater && SpeedFraction > 0.12f && !bWrecked)
 	{
-		SprayAccumulator += DeltaSeconds * (5.f + 16.f * SpeedFraction);
+		SprayAccumulator += DeltaSeconds * (3.f + 9.f * SpeedFraction);
 		while (SprayAccumulator > 1.f)
 		{
 			SprayAccumulator -= 1.f;
-			const bool bBow = FMath::FRand() < 0.35f;
+			// The white water behind is the wake ribbon; puffs are only a
+			// fine mist kicked up beside the bow.
 			const float Side = FMath::RandBool() ? 1.f : -1.f;
-			if (bBow)
+			EmitPuff(Location + Forward * 150.f + Right * (Side * 140.f) + FVector(0, 0, -20),
+				Right * (Side * 380.f * SpeedFraction) - Forward * (Speed * 0.1f) + FVector(0, 0, 260.f * SpeedFraction),
+				0.45f, 30.f, 95.f, FLinearColor(0.92f, 0.96f, 1.f) * Foam, 0.2f, 800.f, 0.7f, false);
+		}
+	}
+
+	// --- The wake ribbon, and the sheets of spray off the bow.
+	const float WakeNow = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	Wake.Update(Location - Forward * 380.f, Forward, FMath::Abs(Speed), bInWater && !bWrecked, GetWaveTime(), WakeNow, Foam);
+	for (int32 Index = 0; Index < SpraySheets.Num(); ++Index)
+	{
+		UStaticMeshComponent* Spray = SpraySheets[Index];
+		const bool bShow = bInWater && !bWrecked && SpeedFraction > 0.3f;
+		Spray->SetVisibility(bShow);
+		if (bShow)
+		{
+			const float Flicker = 0.85f + 0.15f * FMath::Sin(WakeNow * (21.f + Index * 3.f)) + FMath::FRandRange(-0.05f, 0.05f);
+			const float Side = Index == 0 ? 1.f : -1.f;
+			const float Grow = (0.5f + 0.9f * SpeedFraction) * Flicker;
+			const float Unit = SpraySheets[Index]->GetStaticMesh() ? BoatArt::UnitScale(SpraySheets[Index]->GetStaticMesh(), 0.9f) : 1.f;
+			// Long and low: a sheet skimming off the hull, not a fin standing up.
+			Spray->SetRelativeScale3D(FVector(Grow * 1.1f, Side * Grow, Grow * (0.35f + 0.35f * SpeedFraction)) * Unit);
+			if (SprayMaterials.IsValidIndex(Index) && SprayMaterials[Index] != nullptr)
 			{
-				EmitPuff(Location + Forward * 180.f + Right * (Side * 130.f) + FVector(0, 0, -30),
-					Right * (Side * 450.f * SpeedFraction) - Forward * (Speed * 0.2f) + FVector(0, 0, 300.f * SpeedFraction),
-					0.5f, 35.f, 120.f, FLinearColor(0.92f, 0.96f, 1.f) * Foam, 0.28f, 800.f, 0.7f, false);
-			}
-			else
-			{
-				EmitPuff(Location - Forward * FMath::FRandRange(380.f, 460.f) + Right * FMath::FRandRange(-90.f, 90.f),
-					Right * FMath::FRandRange(-120.f, 120.f), 2.f + SpeedFraction, 140.f, 380.f + 260.f * SpeedFraction,
-					FLinearColor(0.92f, 0.96f, 1.f) * Foam, 0.32f, 0.f, 0.08f, true);
+				SprayMaterials[Index]->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.92f, 0.96f, 1.f) * Foam);
+				SprayMaterials[Index]->SetScalarParameterValue(TEXT("Opacity"), FMath::Clamp((SpeedFraction - 0.3f) * 0.9f, 0.f, 0.4f));
 			}
 		}
 	}
@@ -1466,7 +1522,7 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 			const float Grey = bWrecked ? 0.03f : 0.12f;
 			EmitPuff(Location - Forward * 340.f + FVector(0, 0, 150.f),
 				FVector(FMath::FRandRange(-60.f, 60.f), FMath::FRandRange(-60.f, 60.f), FMath::FRandRange(220.f, 380.f)) - Forward * Speed * 0.3f,
-				bWrecked ? 3.f : 2.2f, 90.f, bWrecked ? 700.f : 450.f, FLinearColor(Grey, Grey, Grey), 0.65f, -60.f);
+				bWrecked ? 3.f : 2.2f, 70.f, bWrecked ? 420.f : 260.f, FLinearColor(Grey, Grey, Grey), bWrecked ? 0.55f : 0.4f, -60.f);
 		}
 	}
 

@@ -1,6 +1,7 @@
 #include "WaterSurface.h"
 
 #include "BoatRaceGameState.h"
+#include "BayTerrain.h"
 #include "OceanWaves.h"
 
 #include "Components/StaticMeshComponent.h"
@@ -54,6 +55,11 @@ void AWaterSurface::BeginPlay()
 	NearMaterial = NearWater->CreateAndSetMaterialInstanceDynamic(0);
 	FarMaterial = FarWater->CreateAndSetMaterialInstanceDynamic(0);
 	SetWaterTint(FLinearColor(0.006f, 0.02f, 0.025f));
+	// The horizon plane has no vertex colours (they read as white): no foam.
+	if (FarMaterial != nullptr)
+	{
+		FarMaterial->SetScalarParameterValue(TEXT("FoamFromVertex"), 0.f);
+	}
 
 	GridCells = FMath::Clamp(GridCells, 8, 200);
 	CellSize = FMath::Clamp(CellSize, 100.f, 5000.f);
@@ -85,7 +91,8 @@ void AWaterSurface::BuildGrid()
 	Normals.SetNum(VertexCount);
 	UVs.SetNum(VertexCount);
 	Tangents.SetNum(VertexCount);
-	VertexColors.Reset();
+	// Red marks foam for M_Water: white water breaking along the shore.
+	VertexColors.Init(FLinearColor::Black, VertexCount);
 
 	Triangles.Reset(GridCells * GridCells * 6);
 	for (int32 Y = 0; Y < GridCells; ++Y)
@@ -156,6 +163,25 @@ void AWaterSurface::RefreshGrid(float Seconds)
 			// Tangent along +X, tilted to follow the surface.
 			Tangents[Index] = FProcMeshTangent(FVector(1.0, 0.0, Slope.X).GetSafeNormal(), false);
 			UVs[Index] = FVector2D(WorldX / 1000.0, WorldY / 1000.0);
+		}
+	}
+
+	// Shore foam only changes when the grid moves to a new cell.
+	if (!GridCentre.Equals(FoamCentre))
+	{
+		FoamCentre = GridCentre;
+		for (int32 Y = 0; Y < VertsPerSide; ++Y)
+		{
+			for (int32 X = 0; X < VertsPerSide; ++X)
+			{
+				const double WorldX = OriginX + X * CellSize;
+				const double WorldY = OriginY + Y * CellSize;
+				// Within about seven metres of the beach or the rocks the
+				// water breaks white, fading out to clear water.
+				const float Clearance = BayTerrain::GetClearanceMetres(WorldX / 100.0, WorldY / 100.0);
+				const float Foam = FMath::Clamp(1.f - Clearance / 7.f, 0.f, 1.f);
+				VertexColors[Y * VertsPerSide + X] = FLinearColor(Foam, 0.f, 0.f, 1.f);
+			}
 		}
 	}
 }

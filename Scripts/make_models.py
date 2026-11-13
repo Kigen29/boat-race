@@ -773,12 +773,15 @@ def ice_floe():
     return m.export()
 
 
-BUILD = [race_boat, lambda: round_tree("TreeRound", "Leaf_5CB646", 3, 9.0),
+# The detailed boats live in make_boats.py; it replaces RaceBoat and Yacht.
+exec(compile(open(os.path.join(os.path.dirname(os.path.abspath(globals().get("__file__") or sys.argv[sys.argv.index("-P") + 1])), "make_boats.py")).read(), "make_boats.py", "exec"))
+
+BUILD = [lambda: round_tree("TreeRound", "Leaf_5CB646", 3, 9.0),
          lambda: round_tree("TreeTall", "Leaf_3F9B3A", 11, 12.0), pine, palm, bush,
          lambda: rock("RockA", 21, (1.4, 1.0, 0.8), True), lambda: rock("RockB", 22, (1.0, 1.1, 1.2), False),
          lambda: rock("RockC", 23, (1.8, 1.2, 0.6), True), sea_stack, pylon, rope_float, ramp, start_gantry,
-         barge, cottage, lighthouse, pier, grandstand, tent, flag, banner, bridge, yacht, duck,
-         torpedo, mine, crate, barrel, log, ice_floe]
+         barge, cottage, lighthouse, pier, grandstand, tent, flag, banner, bridge, duck,
+         torpedo, mine, crate, barrel, log, ice_floe] + BOATS
 
 
 def render_previews(objects):

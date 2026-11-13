@@ -6,6 +6,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Engine/Texture.h"
 
 namespace
 {
@@ -54,6 +55,111 @@ namespace
 		OutPart.RemoveFromStart(TEXT("MI_"));
 		OutPart.RemoveFromStart(TEXT("M_"));
 		return true;
+	}
+
+	/** Which master material a part uses, and how it is set up. */
+	enum class EFinish : uint8 { Paint, Livery, Surface, Glass, Foam };
+
+	struct FFinish
+	{
+		EFinish Kind = EFinish::Surface;
+		float Roughness = 0.6f;
+		float Metallic = 0.f;
+		float Grain = 0.1f;
+		float Specular = 0.5f;
+	};
+
+	/** The look of a real thing for each part name a model uses. */
+	FFinish FinishFor(const FString& Part)
+	{
+		struct FRow { const TCHAR* Prefix; FFinish Finish; };
+		static const FRow Rows[] =
+		{
+			// Hull graphics, gelcoat and painted parts: glossy, under a clear coat.
+			{ TEXT("Livery"),    { EFinish::Livery } },
+			{ TEXT("Paint"),     { EFinish::Paint, 0.28f, 0.2f } },
+			{ TEXT("Hull"),      { EFinish::Paint, 0.22f, 0.f } },
+			{ TEXT("Bottom"),    { EFinish::Paint, 0.3f, 0.f } },
+			{ TEXT("Cowl"),      { EFinish::Paint, 0.25f, 0.25f } },
+			{ TEXT("Console"),   { EFinish::Paint, 0.25f, 0.f } },
+			{ TEXT("Coaming"),   { EFinish::Paint, 0.25f, 0.f } },
+			{ TEXT("Cabin"),     { EFinish::Paint, 0.25f, 0.f } },
+			{ TEXT("Top"),       { EFinish::Paint, 0.3f, 0.f } },
+			{ TEXT("Body"),      { EFinish::Paint, 0.35f, 0.3f } },
+			{ TEXT("Nose"),      { EFinish::Paint, 0.3f, 0.2f } },
+			{ TEXT("Fin"),       { EFinish::Paint, 0.35f, 0.2f } },
+			{ TEXT("Duck"),      { EFinish::Paint, 0.35f, 0.f } },
+			{ TEXT("Beak"),      { EFinish::Paint, 0.35f, 0.f } },
+			{ TEXT("Pontoon"),   { EFinish::Paint, 0.45f, 0.f } },
+			{ TEXT("Band"),      { EFinish::Paint, 0.35f, 0.f } },
+			{ TEXT("Sponsor"),   { EFinish::Paint, 0.4f, 0.f } },
+			{ TEXT("Decal"),     { EFinish::Paint, 0.3f, 0.f } },
+			{ TEXT("Stripe"),    { EFinish::Paint, 0.35f, 0.f } },
+			{ TEXT("Hatch"),     { EFinish::Paint, 0.35f, 0.f } },
+			{ TEXT("Radar"),     { EFinish::Paint, 0.3f, 0.f } },
+			{ TEXT("Box"),       { EFinish::Surface, 0.55f, 0.35f, 0.25f } },
+			{ TEXT("Steel"),     { EFinish::Surface, 0.45f, 0.4f, 0.15f } },
+			{ TEXT("Tower"),     { EFinish::Surface, 0.4f, 0.6f, 0.05f } },
+			{ TEXT("Funnel"),    { EFinish::Surface, 0.5f, 0.3f, 0.1f } },
+			// Bright metal: stainless rails, props, cleats, trusses.
+			{ TEXT("Chrome"),    { EFinish::Surface, 0.12f, 1.f, 0.f } },
+			{ TEXT("Prop"),      { EFinish::Surface, 0.18f, 1.f, 0.f } },
+			{ TEXT("Rail"),      { EFinish::Surface, 0.2f, 1.f, 0.f } },
+			{ TEXT("Horn"),      { EFinish::Surface, 0.3f, 1.f, 0.f } },
+			{ TEXT("Hanger"),    { EFinish::Surface, 0.3f, 1.f, 0.f } },
+			{ TEXT("Rib"),       { EFinish::Surface, 0.3f, 1.f, 0.05f } },
+			{ TEXT("Mast"),      { EFinish::Surface, 0.25f, 1.f, 0.f } },
+			{ TEXT("Truss"),     { EFinish::Surface, 0.35f, 1.f, 0.05f } },
+			{ TEXT("Frame"),     { EFinish::Surface, 0.35f, 0.3f, 0.05f } },
+			// Glass and water.
+			{ TEXT("Glass"),     { EFinish::Glass } },
+			{ TEXT("Window"),    { EFinish::Glass } },
+			{ TEXT("Spray"),     { EFinish::Foam } },
+			{ TEXT("Foam"),      { EFinish::Foam } },
+			// Upholstery, rubber and moulded plastic.
+			{ TEXT("Seat"),      { EFinish::Surface, 0.65f, 0.f, 0.12f, 0.35f } },
+			{ TEXT("Cushion"),   { EFinish::Surface, 0.65f, 0.f, 0.12f, 0.35f } },
+			{ TEXT("Collar"),    { EFinish::Surface, 0.8f, 0.f, 0.05f, 0.3f } },
+			{ TEXT("Engine"),    { EFinish::Surface, 0.4f, 0.f, 0.02f } },
+			{ TEXT("Leg"),       { EFinish::Surface, 0.4f, 0.1f, 0.02f } },
+			{ TEXT("Bracket"),   { EFinish::Surface, 0.45f, 0.1f, 0.05f } },
+			{ TEXT("Dash"),      { EFinish::Surface, 0.5f, 0.f, 0.03f } },
+			{ TEXT("Wheel"),     { EFinish::Surface, 0.55f, 0.f, 0.03f } },
+			{ TEXT("Trim"),      { EFinish::Surface, 0.5f, 0.f, 0.03f } },
+			{ TEXT("Shell"),     { EFinish::Surface, 0.45f, 0.4f, 0.1f } },
+			{ TEXT("Panel"),     { EFinish::Surface, 0.5f, 0.f, 0.03f } },
+			{ TEXT("Sole"),      { EFinish::Surface, 0.75f, 0.f, 0.2f } },
+			{ TEXT("Deck"),      { EFinish::Surface, 0.7f, 0.f, 0.25f } },
+			// Natural and built things: rough, with grain.
+			{ TEXT("Rock"),      { EFinish::Surface, 0.9f, 0.f, 0.6f } },
+			{ TEXT("Stone"),     { EFinish::Surface, 0.9f, 0.f, 0.55f } },
+			{ TEXT("Concrete"),  { EFinish::Surface, 0.9f, 0.f, 0.35f } },
+			{ TEXT("Brick"),     { EFinish::Surface, 0.9f, 0.f, 0.45f } },
+			{ TEXT("Wall"),      { EFinish::Surface, 0.85f, 0.f, 0.2f } },
+			{ TEXT("Gable"),     { EFinish::Surface, 0.85f, 0.f, 0.2f } },
+			{ TEXT("Roof"),      { EFinish::Surface, 0.6f, 0.f, 0.25f } },
+			{ TEXT("Road"),      { EFinish::Surface, 0.9f, 0.f, 0.4f } },
+			{ TEXT("Plank"),     { EFinish::Surface, 0.8f, 0.f, 0.5f } },
+			{ TEXT("Post"),      { EFinish::Surface, 0.8f, 0.f, 0.4f } },
+			{ TEXT("Wood"),      { EFinish::Surface, 0.8f, 0.f, 0.5f } },
+			{ TEXT("Bark"),      { EFinish::Surface, 0.95f, 0.f, 0.6f } },
+			{ TEXT("Leaf"),      { EFinish::Surface, 0.8f, 0.f, 0.45f, 0.35f } },
+			{ TEXT("Needle"),    { EFinish::Surface, 0.85f, 0.f, 0.45f, 0.35f } },
+			{ TEXT("Frond"),     { EFinish::Surface, 0.75f, 0.f, 0.35f, 0.35f } },
+			{ TEXT("Grass"),     { EFinish::Surface, 0.9f, 0.f, 0.5f } },
+			{ TEXT("Moss"),      { EFinish::Surface, 0.9f, 0.f, 0.5f } },
+			{ TEXT("Canvas"),    { EFinish::Surface, 0.8f, 0.f, 0.15f } },
+			{ TEXT("Ice"),       { EFinish::Surface, 0.15f, 0.f, 0.15f } },
+			{ TEXT("Snow"),      { EFinish::Surface, 0.7f, 0.f, 0.2f } },
+		};
+		for (const FRow& Row : Rows)
+		{
+			if (Part.StartsWith(Row.Prefix))
+			{
+				return Row.Finish;
+			}
+		}
+		return FFinish();
 	}
 
 	/** How much a part shows snow: foliage and roofs a lot, rock a little. */
@@ -157,7 +263,13 @@ TArray<UMaterialInstanceDynamic*> BoatArt::Paint(UMeshComponent* Component, cons
 		const bool bPaintLit = Look.bNight && bPaint;
 
 		UMaterialInstanceDynamic* Instance = nullptr;
-		if ((bLamp || bWindowLit || bPaintLit) && Glow != nullptr)
+		const FFinish Finish = FinishFor(Part);
+		const bool bLivery = Finish.Kind == EFinish::Livery;
+		if (bLivery && Look.Paint.A > 0.f)
+		{
+			Color = FLinearColor(Look.Paint.R, Look.Paint.G, Look.Paint.B, 1.f);
+		}
+		if ((bLamp || bWindowLit || (bPaintLit && !bLivery)) && Glow != nullptr)
 		{
 			Instance = UMaterialInstanceDynamic::Create(Glow, Component);
 			const float Strength = bLamp ? 5.f : (bWindowLit ? 3.f : 0.9f);
@@ -167,11 +279,48 @@ TArray<UMaterialInstanceDynamic*> BoatArt::Paint(UMeshComponent* Component, cons
 		{
 			const float Snow = FMath::Clamp(Look.Snow * SnowAffinity(Part), 0.f, 1.f);
 			Color = FMath::Lerp(Color, FLinearColor(0.86f, 0.9f, 0.96f), Snow) * Look.Brightness;
-			Instance = UMaterialInstanceDynamic::Create(Basic, Component);
-			Instance->SetVectorParameterValue(TEXT("Color"), Color);
+
+			// The realistic master materials when import_assets.sh has built
+			// them; the engine's basic shape material otherwise.
+			static const TCHAR* const Names[] = { TEXT("M_Paint"), TEXT("M_Livery"), TEXT("M_Surface"), TEXT("M_Glass"), TEXT("M_Foam") };
+			UMaterialInterface* Master = Material(Names[static_cast<int32>(Finish.Kind)]);
+			if (Finish.Kind == EFinish::Livery && Master == nullptr)
+			{
+				Master = Material(TEXT("M_Paint"));
+			}
+			Instance = UMaterialInstanceDynamic::Create(Master ? Master : Basic, Component);
+			switch (Finish.Kind)
+			{
+			case EFinish::Glass:
+				Instance->SetVectorParameterValue(TEXT("Color"), Color * 0.6f);
+				Instance->SetScalarParameterValue(TEXT("Opacity"), 0.45f);
+				break;
+			case EFinish::Foam:
+				Instance->SetVectorParameterValue(TEXT("Color"), Color);
+				Instance->SetScalarParameterValue(TEXT("Opacity"), 0.f);
+				break;
+			case EFinish::Livery:
+				Instance->SetVectorParameterValue(TEXT("Color"), Color);
+				if (Part.StartsWith(TEXT("LiveryCruise")))
+				{
+					if (UTexture* Cruise = LoadQuiet<UTexture>(TEXT("/Game/Models/T_LiveryCruise.T_LiveryCruise")))
+					{
+						Instance->SetTextureParameterValue(TEXT("Mask"), Cruise);
+					}
+					Instance->SetVectorParameterValue(TEXT("Accent"), FLinearColor(0.01f, 0.02f, 0.06f));
+				}
+				break;
+			default:
+				Instance->SetVectorParameterValue(TEXT("Color"), Color);
+				Instance->SetScalarParameterValue(TEXT("Roughness"), Finish.Roughness);
+				Instance->SetScalarParameterValue(TEXT("Metallic"), Finish.Metallic);
+				Instance->SetScalarParameterValue(TEXT("Grain"), Finish.Grain);
+				Instance->SetScalarParameterValue(TEXT("Specular"), Finish.Specular);
+				break;
+			}
 		}
 		Component->SetMaterial(Slot, Instance);
-		if (bPaint)
+		if (bPaint || Part.StartsWith(TEXT("Livery")))
 		{
 			PaintSlots.Add(Instance);
 		}

@@ -53,6 +53,8 @@ struct FWeatherLook
 	float Snow = 0.f;
 	bool bLightning = false;
 	bool bNight = false;
+	/** How bright unlit foam and spray should be in this light. */
+	float FoamBrightness = 1.f;
 	/** Seagulls, birdsong. */
 	bool bGulls = false;
 };

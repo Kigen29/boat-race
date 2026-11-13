@@ -270,13 +270,15 @@ void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
 			FScreenshotRequest::RequestScreenshot(TEXT("Tour_00_grid"), false, false);
 			return;
 		}
-		if (Step > Weathers + 2)
+		// The last stop is a beauty shot: sunny, camera swung round to the bow.
+		Boat->SetShowcaseCamera(Step == Weathers + 3);
+		if (Step > Weathers + 3)
 		{
 			ConsoleCommand(TEXT("quit"));
 			return;
 		}
 		// Weather can only change between races, so do it as the server would.
-		RaceState->SetWeather(RaceWeather::FromIndex((Step - 1) % Weathers));
+		RaceState->SetWeather(Step == Weathers + 3 ? ERaceWeather::Sunny : RaceWeather::FromIndex((Step - 1) % Weathers));
 		const int32 Gates = BoatTrack::NumGates();
 		const FTransform Spot = BoatTrack::GetGateResetTransform((Step * 5) % Gates);
 		Boat->TeleportBoat(Spot.GetLocation(), static_cast<float>(Spot.Rotator().Yaw));
@@ -284,7 +286,7 @@ void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
 	// The last two stops set off a blast ahead of the boat to show the explosion.
 	static int32 BlastStep = -1;
 	const float IntoStep = TourClock - 2.f - TourStep * StepSeconds;
-	if (TourStep > Weathers && TourStep != BlastStep && IntoStep > (TourStep == Weathers + 1 ? 3.5f : 3.f))
+	if (TourStep > Weathers && TourStep <= Weathers + 2 && TourStep != BlastStep && IntoStep > (TourStep == Weathers + 1 ? 3.5f : 3.f))
 	{
 		BlastStep = TourStep;
 		BoatBlast::Detonate(World, Boat->GetActorLocation() + Boat->GetActorForwardVector() * 3500.f, 900.f, 0.f, 0.f, Boat);

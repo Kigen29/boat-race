@@ -187,13 +187,28 @@ def build_water_material(normal_texture):
     materials.connect_material_expressions(softened, "", normal, "")
     materials.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
 
-    # A named parameter, so ARaceEnvironment can tint the sea for the weather.
-    base_colour = node(unreal.MaterialExpressionVectorParameter, -250, -320)
-    base_colour.set_editor_property("parameter_name", "Color")
-    base_colour.set_editor_property("default_value", unreal.LinearColor(0.006, 0.02, 0.025, 1.0))
-    materials.connect_material_property(base_colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    materials.connect_material_property(constant(0.05, -250, -180), "", unreal.MaterialProperty.MP_ROUGHNESS)
-    materials.connect_material_property(constant(0.3, -250, -110), "", unreal.MaterialProperty.MP_SPECULAR)
+    # Colour: the weather's deep-water tint (the "Color" parameter), lightened
+    # towards the crests where light shines through the thin water, as in a
+    # real tropical sea; then foam where the game marks it in the vertex
+    # colour (along the shore) and on the steepest crests.
+    g = Graph(material)
+    deep = g.vparam("Color", 0.006, 0.02, 0.025)
+    height = g.node(unreal.MaterialExpressionComponentMask, r=False, g=False, b=True, a=False)
+    g.link(g.node(unreal.MaterialExpressionWorldPosition), height)
+    crest = g.sat(g.mul(height, g.const(1.0 / 90.0)))
+    shallow = g.add(g.mul(deep, g.const(3.2)), g.vec(0.0, 0.035, 0.03))
+    water = g.lerp(deep, shallow, g.mul(crest, g.const(0.65)))
+    n1, n2 = g.noise(0.006), g.noise(0.04)
+    patches = g.sat(g.mul(g.sub(g.add(g.mul(n1, g.const(0.5)), g.mul(n2, g.const(0.5))), g.const(0.35)), g.const(3.0)))
+    vertex = g.node(unreal.MaterialExpressionVertexColor)
+    shore = g.node(unreal.MaterialExpressionMultiply)
+    materials.connect_material_expressions(vertex, "R", shore, "A")
+    g.link(g.sparam("FoamFromVertex", 1.0), shore, "B")
+    crest_foam = g.sat(g.mul(g.sub(crest, g.const(0.8)), g.const(4.0)))
+    foam = g.mul(g.sat(g.add(shore, crest_foam)), patches)
+    g.out(g.lerp(water, g.vec(0.8, 0.84, 0.86), foam), unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.lerp(g.const(0.04), g.const(0.55), foam), unreal.MaterialProperty.MP_ROUGHNESS)
+    g.out(g.const(0.5), unreal.MaterialProperty.MP_SPECULAR)
 
     materials.recompile_material(material)
     editor_assets.save_asset(path)
@@ -305,13 +320,198 @@ def new_material(name, folder=None):
     return material, path
 
 
+TEXTURES_SOURCE = os.path.join(PROJECT_DIR, "Art", "Textures")
+
+
+class Graph:
+    """Small helpers for wiring material graphs in a readable way."""
+
+    def __init__(self, material):
+        self.m = material
+        self.x = -1200
+
+    def node(self, cls, **props):
+        self.x += 40
+        n = materials.create_material_expression(self.m, cls, self.x, 0)
+        for key, value in props.items():
+            n.set_editor_property(key, value)
+        return n
+
+    def link(self, a, b, pin="", out=""):
+        materials.connect_material_expressions(a, out, b, pin)
+
+    def const(self, value):
+        return self.node(unreal.MaterialExpressionConstant, r=value)
+
+    def vec(self, r, g, b):
+        return self.node(unreal.MaterialExpressionConstant3Vector, constant=unreal.LinearColor(r, g, b, 1.0))
+
+    def vparam(self, name, r, g, b):
+        return self.node(unreal.MaterialExpressionVectorParameter, parameter_name=name,
+                         default_value=unreal.LinearColor(r, g, b, 1.0))
+
+    def sparam(self, name, value):
+        return self.node(unreal.MaterialExpressionScalarParameter, parameter_name=name, default_value=value)
+
+    def op(self, cls, a, b):
+        n = self.node(cls)
+        self.link(a, n, "A")
+        self.link(b, n, "B")
+        return n
+
+    def mul(self, a, b):
+        return self.op(unreal.MaterialExpressionMultiply, a, b)
+
+    def add(self, a, b):
+        return self.op(unreal.MaterialExpressionAdd, a, b)
+
+    def sub(self, a, b):
+        return self.op(unreal.MaterialExpressionSubtract, a, b)
+
+    def lerp(self, a, b, alpha):
+        n = self.node(unreal.MaterialExpressionLinearInterpolate)
+        self.link(a, n, "A")
+        self.link(b, n, "B")
+        self.link(alpha, n, "Alpha")
+        return n
+
+    def sat(self, a):
+        n = self.node(unreal.MaterialExpressionSaturate)
+        self.link(a, n)
+        return n
+
+    def noise(self, scale):
+        # Scale multiplies world position: 0.01 gives features about a metre across.
+        return self.node(unreal.MaterialExpressionNoise, scale=scale, levels=4, output_min=0.0, output_max=1.0)
+
+    def out(self, node, prop, pin=""):
+        materials.connect_material_property(node, pin, prop)
+
+
+def finish(material, path, label):
+    materials.recompile_material(material)
+    editor_assets.save_asset(path)
+    log("%s ready: %s" % (label, path))
+
+
+def build_realistic_materials():
+    """Clear-coat paint, livery, general surfaces with grain, glass and foam."""
+    P = unreal.MaterialProperty
+
+    # Grain: two octaves of world-space noise that break up flat colour on
+    # rock, wood, concrete and canvas. 0 on paint and chrome.
+    def grain(g, colour, amount):
+        n1, n2 = g.noise(0.004), g.noise(0.03)
+        mix = g.add(g.mul(n1, g.const(0.6)), g.mul(n2, g.const(0.4)))
+        centred = g.sub(mix, g.const(0.5))
+        return g.mul(colour, g.add(g.const(1.0), g.mul(centred, g.mul(amount, g.const(0.9))))), n2
+
+    material, path = new_material("M_Surface")
+    if material is not None:
+        g = Graph(material)
+        colour, amount = g.vparam("Color", 0.5, 0.5, 0.5), g.sparam("Grain", 0.0)
+        base, fine = grain(g, colour, amount)
+        g.out(base, P.MP_BASE_COLOR)
+        rough = g.add(g.sparam("Roughness", 0.6), g.mul(g.sub(fine, g.const(0.5)), g.mul(amount, g.const(0.3))))
+        g.out(rough, P.MP_ROUGHNESS)
+        g.out(g.sparam("Metallic", 0.0), P.MP_METALLIC)
+        g.out(g.sparam("Specular", 0.5), P.MP_SPECULAR)
+        finish(material, path, "surface material")
+
+    # Gelcoat and paint: a glossy clear coat over the colour, as on a real hull.
+    material, path = new_material("M_Paint")
+    if material is not None:
+        material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_CLEAR_COAT)
+        g = Graph(material)
+        g.out(g.vparam("Color", 0.8, 0.1, 0.1), P.MP_BASE_COLOR)
+        g.out(g.sparam("Metallic", 0.15), P.MP_METALLIC)
+        g.out(g.sparam("Roughness", 0.35), P.MP_ROUGHNESS)
+        g.out(g.const(1.0), P.MP_CUSTOM_DATA0)
+        g.out(g.sparam("CoatRoughness", 0.03), P.MP_CUSTOM_DATA1)
+        finish(material, path, "paint material")
+
+    # Livery: a mask texture (R own colour, G accent, B white) under a clear coat.
+    for tex_name in ("T_Livery", "T_LiveryCruise"):
+        if os.path.isfile(os.path.join(TEXTURES_SOURCE, tex_name + ".png")):
+            import_file(tex_name + ".png", MODELS_DEST, tex_name, source_dir=TEXTURES_SOURCE)
+            texture = editor_assets.load_asset("%s/%s" % (MODELS_DEST, tex_name))
+            if texture is not None:
+                texture.set_editor_property("srgb", False)
+                texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_MASKS)
+                editor_assets.save_asset("%s/%s" % (MODELS_DEST, tex_name))
+    mask = editor_assets.load_asset(MODELS_DEST + "/T_Livery")
+    material, path = new_material("M_Livery")
+    if material is not None and mask is not None:
+        material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_CLEAR_COAT)
+        g = Graph(material)
+        sample = g.node(unreal.MaterialExpressionTextureSampleParameter2D, parameter_name="Mask", texture=mask,
+                        sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+        own = g.mul(g.vparam("Color", 0.8, 0.1, 0.1), sample)
+        materials.connect_material_expressions(sample, "R", own, "B")
+        accent = g.node(unreal.MaterialExpressionMultiply)
+        g.link(g.vparam("Accent", 0.02, 0.02, 0.025), accent, "A")
+        materials.connect_material_expressions(sample, "G", accent, "B")
+        white = g.node(unreal.MaterialExpressionMultiply)
+        g.link(g.vparam("White", 0.85, 0.86, 0.88), white, "A")
+        materials.connect_material_expressions(sample, "B", white, "B")
+        g.out(g.add(g.add(own, accent), white), P.MP_BASE_COLOR)
+        g.out(g.sparam("Metallic", 0.25), P.MP_METALLIC)
+        g.out(g.sparam("Roughness", 0.3), P.MP_ROUGHNESS)
+        g.out(g.const(1.0), P.MP_CUSTOM_DATA0)
+        g.out(g.const(0.03), P.MP_CUSTOM_DATA1)
+        finish(material, path, "livery material")
+
+    # Tinted glass: see-through head-on, mirror-like at a glancing angle.
+    material, path = new_material("M_Glass")
+    if material is not None:
+        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+        material.set_editor_property("two_sided", True)
+        try:
+            material.set_editor_property("translucency_lighting_mode", unreal.TranslucencyLightingMode.TLM_SURFACE)
+        except Exception:
+            pass
+        g = Graph(material)
+        g.out(g.vparam("Color", 0.05, 0.08, 0.1), P.MP_BASE_COLOR)
+        g.out(g.const(0.05), P.MP_ROUGHNESS)
+        g.out(g.const(1.0), P.MP_SPECULAR)
+        fres = g.node(unreal.MaterialExpressionFresnel, exponent=3.0)
+        base = g.sparam("Opacity", 0.4)
+        g.out(g.lerp(base, g.const(0.95), fres), P.MP_OPACITY)
+        finish(material, path, "glass material")
+
+    # Foam: white water broken into patches by noise; the game fades it with
+    # vertex alpha (wake trails, bow spray) and the Opacity parameter.
+    material, path = new_material("M_Foam")
+    if material is not None:
+        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+        material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+        material.set_editor_property("two_sided", True)
+        g = Graph(material)
+        n1, n2 = g.noise(0.008), g.noise(0.05)
+        patches = g.sat(g.mul(g.sub(g.add(g.mul(n1, g.const(0.55)), g.mul(n2, g.const(0.45))), g.const(0.3)), g.const(2.6)))
+        vertex = g.node(unreal.MaterialExpressionVertexColor)
+        alpha = g.node(unreal.MaterialExpressionMultiply)
+        materials.connect_material_expressions(vertex, "A", alpha, "A")
+        g.link(g.sparam("Opacity", 0.8), alpha, "B")
+        g.out(g.mul(alpha, patches), P.MP_OPACITY)
+        g.out(g.mul(g.vparam("Color", 1.0, 1.0, 1.0), g.add(g.const(0.85), g.mul(n2, g.const(0.15)))), P.MP_EMISSIVE_COLOR)
+        finish(material, path, "foam material")
+
+
 def build_scenery_materials():
     # Land: the colour is baked into the mesh per vertex by BayTerrain.cpp.
     material, path = new_material("M_VertexColor")
     if material is not None:
         vertex = materials.create_material_expression(material, unreal.MaterialExpressionVertexColor, -400, 0)
-        # The first (unnamed) output is the RGB; "RGB" is not an output name.
-        materials.connect_material_property(vertex, "", unreal.MaterialProperty.MP_BASE_COLOR)
+        # Break the baked colour up with world-space noise: patches of lighter
+        # and darker grass, streaks in the rock, ripples in the sand.
+        g = Graph(material)
+        broad, fine = g.noise(0.0035), g.noise(0.027)
+        shade = g.mul(g.add(g.const(0.87), g.mul(broad, g.const(0.26))), g.add(g.const(0.95), g.mul(fine, g.const(0.1))))
+        tinted = g.node(unreal.MaterialExpressionMultiply)
+        materials.connect_material_expressions(vertex, "", tinted, "A")
+        g.link(shade, tinted, "B")
+        materials.connect_material_property(tinted, "", unreal.MaterialProperty.MP_BASE_COLOR)
         rough = materials.create_material_expression(material, unreal.MaterialExpressionConstant, -400, 200)
         rough.set_editor_property("r", 0.85)
         materials.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
@@ -369,6 +569,7 @@ def run_step(label, step):
 def main():
     run_step("Blender models", import_models)
     run_step("scenery materials", build_scenery_materials)
+    run_step("realistic materials", build_realistic_materials)
     run_step("save models", lambda: editor_assets.save_directory(MODELS_DEST, False, True))
 
     if not os.path.isdir(SOURCE_DIR):

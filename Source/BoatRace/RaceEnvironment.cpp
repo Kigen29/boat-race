@@ -11,6 +11,7 @@
 #include "OceanWaves.h"
 #include "WaterSurface.h"
 
+#include "Components/AudioComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -231,6 +232,7 @@ void ARaceEnvironment::BeginPlay()
 	BuildLogs();
 	BuildStartGantry();
 	BuildIceFloes();
+	BuildTraffic();
 	SpawnServerActors();
 
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
@@ -273,9 +275,7 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		Moon->SetVisibility(false);
 	}
 	Sun->SetLightColor(Look.SunColor);
-	// Auto-exposure would brighten a night scene back to day; pin it down.
-	Grade->Settings.bOverride_AutoExposureBias = true;
-	Grade->Settings.AutoExposureBias = Look.bNight ? -1.4f : (Look.FogDensity > 0.1f ? 0.3f : 0.f);
+	ApplyGrade(Look);
 	SkyLight->SetIntensity(Look.SkyIntensity);
 	BaseSkyIntensity = Look.SkyIntensity;
 	Haze->SetFogDensity(Look.FogDensity);
@@ -545,7 +545,7 @@ void ARaceEnvironment::UpdatePrecipitation(float Seconds)
 	default:
 		Velocity = FVector(Wind.X * 0.7, Wind.Y * 0.7, -1100.0);
 		Box = FVector(5000.0, 5000.0, 3000.0);
-		Scale = FVector(0.012f, 0.012f, 0.9f);
+		Scale = FVector(0.008f, 0.008f, 0.8f);
 		break;
 	}
 	const FRotator Along = ShownPrecipitation == EPrecipitation::Gale
@@ -1055,6 +1055,7 @@ void ARaceEnvironment::Tick(float DeltaSeconds)
 	UpdateStartLights();
 	UpdateSky(Seconds, DeltaSeconds);
 	UpdatePrecipitation(Seconds);
+	UpdateTraffic(Seconds, DeltaSeconds);
 
 	// Barges run on the shared clock, so they are in the same place on every
 	// machine without anything being sent over the network.
@@ -1198,4 +1199,204 @@ void ARaceEnvironment::HighlightNextGate(float Seconds)
 		}
 	}
 	HighlightedGate = NextGate;
+}
+
+// ---------------------------------------------------------------------------
+// The camera's grade: what makes it look filmed rather than rendered
+// ---------------------------------------------------------------------------
+void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
+{
+	FPostProcessSettings& Post = Grade->Settings;
+	// Auto-exposure would brighten a night scene back to day; pin it down.
+	Post.bOverride_AutoExposureBias = true;
+	Post.AutoExposureBias = Look.bNight ? -1.4f : (Look.FogDensity > 0.1f ? 0.3f : 0.f);
+	// Highlights on wet paint, chrome and sun glitter bloom softly.
+	Post.bOverride_BloomIntensity = true;
+	Post.BloomIntensity = Look.bNight ? 1.1f : 0.8f;
+	Post.bOverride_BloomThreshold = true;
+	Post.BloomThreshold = 1.2f;
+	// A touch of lens: vignette and chromatic fringe at the edges.
+	Post.bOverride_VignetteIntensity = true;
+	Post.VignetteIntensity = 0.38f;
+	Post.bOverride_SceneFringeIntensity = true;
+	Post.SceneFringeIntensity = 0.25f;
+	// Sunny Florida colour: slightly richer and warmer in good weather,
+	// flatter and cooler when it rains.
+	const bool bBright = Look.Precipitation == EPrecipitation::None && !Look.bNight && Look.FogDensity < 0.1f;
+	Post.bOverride_ColorSaturation = true;
+	Post.ColorSaturation = bBright ? FVector4(1.12, 1.12, 1.12, 1.0) : FVector4(0.92, 0.92, 0.92, 1.0);
+	Post.bOverride_ColorContrast = true;
+	Post.ColorContrast = FVector4(1.06, 1.06, 1.06, 1.0);
+	Post.bOverride_WhiteTemp = true;
+	Post.WhiteTemp = bBright ? 6200.f : (Look.bNight ? 7600.f : 6900.f);
+	// Motion blur sells speed; a light amount even on the low preset.
+	Post.bOverride_MotionBlurAmount = true;
+	Post.MotionBlurAmount = 0.25f;
+	Post.bOverride_MotionBlurMax = true;
+	Post.MotionBlurMax = 1.5f;
+	// A whisper of grain so flat colour does not look digital.
+	Post.bOverride_FilmGrainIntensity = true;
+	Post.FilmGrainIntensity = 0.06f;
+}
+
+// ---------------------------------------------------------------------------
+// Boat traffic off the course
+// ---------------------------------------------------------------------------
+void ARaceEnvironment::BuildTraffic()
+{
+	struct FKind { const TCHAR* Name; float Height; float Length; float SpeedMs; FLinearColor Paint; };
+	const FKind Kinds[] =
+	{
+		{ TEXT("CenterConsole"), 3.2f, 1080.f, 13.f, FLinearColor(0.02f, 0.12f, 0.35f) },
+		{ TEXT("JetSki"),        1.3f,  340.f, 16.f, FLinearColor(0.9f, 0.25f, 0.02f) },
+		{ TEXT("Yacht"),         6.2f, 1750.f,  6.f, FLinearColor(0.85f, 0.86f, 0.88f) },
+		{ TEXT("JetSki"),        1.3f,  340.f, 14.f, FLinearColor(0.05f, 0.55f, 0.3f) },
+		{ TEXT("CenterConsole"), 3.2f, 1080.f, 11.f, FLinearColor(0.75f, 0.05f, 0.08f) },
+	};
+	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
+	UStaticMesh* Cube = Shape(TEXT("/Engine/BasicShapes/Cube.Cube"));
+
+	// Look for stretches of open water beside the course, clear of the
+	// course itself, the shore, rocks and the barge channels.
+	int32 Next = 0;
+	for (int32 Gate = 0; Gate < Gates.Num() && Next < UE_ARRAY_COUNT(Kinds); ++Gate)
+	{
+		for (const double Side : { -1.0, 1.0 })
+		{
+			if (Next >= UE_ARRAY_COUNT(Kinds))
+			{
+				break;
+			}
+			const FKind& Kind = Kinds[Next];
+			const FVector2D A = Gates[Gate].Center, B = Gates[(Gate + 1) % Gates.Num()].Center;
+			const FVector2D Along = (B - A).GetSafeNormal();
+			const FVector2D Out(-Along.Y * Side, Along.X * Side);
+			const double LegLength = (B - A).Size();
+			const float Radius = 1300.f;
+			const FVector2D Centre = (A + B) * 0.5 + Out * 8200.0;
+			const float Straight = static_cast<float>(LegLength * 0.28);
+
+			bool bClear = Straight > 2500.f;
+			for (int32 Sample = 0; Sample < 48 && bClear; ++Sample)
+			{
+				const float Angle = Sample / 48.f * 2.f * PI;
+				const FVector2D Point = Centre + Along * (FMath::Cos(Angle) * (Straight + Radius))
+					+ Out * (FMath::Sin(Angle) * Radius * 1.4f);
+				bClear &= BayTerrain::GetClearanceMetres(Point.X / 100.0, Point.Y / 100.0) > 14.f;
+				double Course = 1.e12;
+				for (int32 Leg = 0; Leg < Gates.Num(); ++Leg)
+				{
+					Course = FMath::Min(Course, PointSegmentDistance(Point, Gates[Leg].Center, Gates[(Leg + 1) % Gates.Num()].Center));
+				}
+				bClear &= Course > 6200.0;
+				for (const FBoatBarge& Barge : BoatTrack::GetBarges())
+				{
+					bClear &= PointSegmentDistance(Point, Barge.From, Barge.To) > 4500.0;
+				}
+				for (const FBoatCircle& Rock : BoatTrack::GetRocks())
+				{
+					bClear &= FVector2D::Distance(Point, Rock.Center) > Rock.Radius + 2000.f;
+				}
+			}
+			if (!bClear)
+			{
+				continue;
+			}
+
+			UStaticMeshComponent* Look = AddModel(Kind.Name, Kind.Height, FVector(Centre.X, Centre.Y, 0.0), FRotator::ZeroRotator, 1.f, Kind.Paint);
+			if (Look == nullptr)
+			{
+				return; // models not imported
+			}
+			FTrafficBoat& Boat = Traffic.AddDefaulted_GetRef();
+			Boat.Centre = Centre;
+			Boat.Along = Along;
+			Boat.Straight = Straight;
+			Boat.Radius = Radius;
+			Boat.Speed = Kind.SpeedMs * 100.f;
+			Boat.Phase = 5000.f * Next;
+			Boat.Look = Look;
+			Boat.Length = Kind.Length;
+			// A plain solid hull so a racer who strays out here hits something.
+			Boat.Solid = AddPiece(Cube, FVector(Centre.X, Centre.Y, 0.0), FRotator::ZeroRotator,
+				FVector(Kind.Length * 0.9f / 100.f, Kind.Length * 0.3f / 100.f, 1.6f), FLinearColor::Gray, true);
+			Boat.Solid->SetVisibility(false);
+			Boat.Wake.Init(this);
+			if (UBoatAudioSubsystem* Audio = UBoatAudioSubsystem::Get(this))
+			{
+				Boat.Engine = Audio->MakeLoop(Look, EBoatSound::Engine, true);
+				if (Boat.Engine != nullptr)
+				{
+					Boat.Engine->SetVolumeMultiplier(Kind.Length > 1500.f ? 0.25f : 0.45f);
+					Boat.Engine->SetPitchMultiplier(Kind.Length < 500.f ? 1.6f : (Kind.Length > 1500.f ? 0.55f : 0.9f));
+					Boat.Engine->Play();
+					TrafficRefs.Add(Boat.Engine);
+				}
+			}
+			++Next;
+		}
+	}
+	UE_LOG(LogBoatRace, Log, TEXT("%d boats out on the water off the course."), Traffic.Num());
+}
+
+void ARaceEnvironment::UpdateTraffic(float Seconds, float DeltaSeconds)
+{
+	const FWeatherLook& Look = RaceWeather::Get(RaceWeather::FromIndex(AppliedWeather));
+	const float Foam = Look.FoamBrightness;
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+
+	for (FTrafficBoat& Boat : Traffic)
+	{
+		if (Boat.Look == nullptr)
+		{
+			continue;
+		}
+		// Position along a stadium: two straights joined by half circles.
+		const float Lap = 4.f * Boat.Straight + 2.f * PI * Boat.Radius;
+		float S = FMath::Fmod(Boat.Phase + Seconds * Boat.Speed, Lap);
+		const FVector2D Side(-Boat.Along.Y, Boat.Along.X);
+		FVector2D Position, Heading;
+		if (S < 2.f * Boat.Straight)
+		{
+			Position = Boat.Centre + Boat.Along * (S - Boat.Straight) - Side * Boat.Radius;
+			Heading = Boat.Along;
+		}
+		else if ((S -= 2.f * Boat.Straight) < PI * Boat.Radius)
+		{
+			const float Angle = S / Boat.Radius - HALF_PI;
+			const FVector2D End = Boat.Centre + Boat.Along * Boat.Straight;
+			Position = End + Boat.Along * (FMath::Cos(Angle) * Boat.Radius) + Side * (FMath::Sin(Angle) * Boat.Radius);
+			Heading = -Boat.Along * FMath::Sin(Angle) + Side * FMath::Cos(Angle);
+		}
+		else if ((S -= PI * Boat.Radius) < 2.f * Boat.Straight)
+		{
+			Position = Boat.Centre + Boat.Along * (Boat.Straight - S) + Side * Boat.Radius;
+			Heading = -Boat.Along;
+		}
+		else
+		{
+			S -= 2.f * Boat.Straight;
+			const float Angle = S / Boat.Radius + HALF_PI;
+			const FVector2D End = Boat.Centre - Boat.Along * Boat.Straight;
+			Position = End + Boat.Along * (FMath::Cos(Angle) * Boat.Radius) + Side * (FMath::Sin(Angle) * Boat.Radius);
+			Heading = -Boat.Along * FMath::Sin(Angle) + Side * FMath::Cos(Angle);
+		}
+		Heading = Heading.GetSafeNormal();
+
+		// Ride the waves: sit on the surface, pitch and roll with its slope,
+		// lean into the turns and lift the bow with speed.
+		FVector2D Slope;
+		const float Surface = OceanWaves::GetHeightAndSlope(Position, Seconds, Slope);
+		const FVector2D Right(-Heading.Y, Heading.X);
+		const float Pitch = -FMath::RadiansToDegrees(FMath::Atan(FVector2D::DotProduct(Slope, Heading))) * 0.7f - 2.5f;
+		const bool bTurning = !Heading.Equals(Boat.Along, 0.01) && !Heading.Equals(-Boat.Along, 0.01);
+		const float Roll = FMath::RadiansToDegrees(FMath::Atan(FVector2D::DotProduct(Slope, Right))) * 0.7f + (bTurning ? -8.f : 0.f);
+		const FRotator Rotation(Pitch, FMath::RadiansToDegrees(FMath::Atan2(Heading.Y, Heading.X)), Roll);
+		Boat.Look->SetRelativeLocationAndRotation(FVector(Position.X, Position.Y, Surface - 25.f), Rotation);
+		Boat.Solid->SetRelativeLocationAndRotation(FVector(Position.X, Position.Y, Surface + 20.f), FRotator(0.f, Rotation.Yaw, 0.f));
+
+		const FVector Forward(Heading.X, Heading.Y, 0.f);
+		Boat.Wake.Update(FVector(Position.X, Position.Y, Surface) - Forward * (Boat.Length * 0.45f), Forward, Boat.Speed,
+			true, Seconds, Now, Foam, Boat.Length / 750.f);
+	}
 }

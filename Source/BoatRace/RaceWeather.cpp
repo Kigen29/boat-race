@@ -14,6 +14,7 @@ namespace
 
 		FWeatherLook& Sunny = Looks[static_cast<int32>(ERaceWeather::Sunny)];
 		Sunny.Name = TEXT("Sunny");
+		Sunny.FoamBrightness = 1.25f;
 		Sunny.SunPitch = -48.f; Sunny.SunYaw = 145.f; Sunny.SunIntensity = 10.f;
 		Sunny.SunColor = FLinearColor(1.f, 0.96f, 0.88f);
 		Sunny.SkyIntensity = 1.2f; Sunny.FogDensity = 0.006f; Sunny.FogColor = WeatherSRGB(150, 196, 240);
@@ -25,6 +26,7 @@ namespace
 		FWeatherLook& Cloudy = Looks[static_cast<int32>(ERaceWeather::Cloudy)];
 		Cloudy = Sunny;
 		Cloudy.Name = TEXT("Cloudy");
+		Cloudy.FoamBrightness = 0.7f;
 		Cloudy.SunPitch = -40.f; Cloudy.SunIntensity = 5.f; Cloudy.SunColor = FLinearColor(0.92f, 0.93f, 0.96f);
 		Cloudy.SkyIntensity = 1.3f; Cloudy.FogDensity = 0.018f; Cloudy.FogColor = WeatherSRGB(160, 172, 186);
 		Cloudy.WaterTint = FLinearColor(0.006f, 0.07f, 0.11f);
@@ -34,6 +36,7 @@ namespace
 		FWeatherLook& Rainy = Looks[static_cast<int32>(ERaceWeather::Rainy)];
 		Rainy = Cloudy;
 		Rainy.Name = TEXT("Rainy");
+		Rainy.FoamBrightness = 0.35f;
 		Rainy.SunIntensity = 2.6f; Rainy.SunColor = FLinearColor(0.8f, 0.84f, 0.92f);
 		Rainy.SkyIntensity = 1.2f; Rainy.FogDensity = 0.04f; Rainy.FogColor = WeatherSRGB(128, 138, 150);
 		Rainy.WaterTint = FLinearColor(0.006f, 0.035f, 0.05f);
@@ -44,6 +47,7 @@ namespace
 		FWeatherLook& Stormy = Looks[static_cast<int32>(ERaceWeather::Stormy)];
 		Stormy = Rainy;
 		Stormy.Name = TEXT("Stormy");
+		Stormy.FoamBrightness = 0.28f;
 		Stormy.SunPitch = -14.f; Stormy.SunYaw = 140.f; Stormy.SunIntensity = 1.6f; Stormy.SunColor = FLinearColor(0.72f, 0.78f, 0.92f);
 		Stormy.SkyIntensity = 0.9f; Stormy.FogDensity = 0.06f; Stormy.FogColor = WeatherSRGB(74, 82, 92);
 		Stormy.WaterTint = FLinearColor(0.004f, 0.02f, 0.024f);
@@ -53,6 +57,7 @@ namespace
 		FWeatherLook& Windy = Looks[static_cast<int32>(ERaceWeather::Windy)];
 		Windy = Sunny;
 		Windy.Name = TEXT("Windy");
+		Windy.FoamBrightness = 1.1f;
 		Windy.SunPitch = -35.f; Windy.SunYaw = 120.f; Windy.SunIntensity = 7.f;
 		Windy.FogDensity = 0.014f; Windy.WaterTint = FLinearColor(0.004f, 0.09f, 0.2f);
 		Windy.Waves = 1.35f; Windy.Wind = 14.f; Windy.Gustiness = 0.7f;
@@ -61,6 +66,7 @@ namespace
 		FWeatherLook& Snowy = Looks[static_cast<int32>(ERaceWeather::Snowy)];
 		Snowy = Cloudy;
 		Snowy.Name = TEXT("Snowy");
+		Snowy.FoamBrightness = 0.8f;
 		Snowy.SunPitch = -22.f; Snowy.SunIntensity = 3.5f; Snowy.SunColor = FLinearColor(0.9f, 0.94f, 1.f);
 		Snowy.SkyIntensity = 1.5f; Snowy.FogDensity = 0.035f; Snowy.FogColor = WeatherSRGB(206, 214, 228);
 		Snowy.WaterTint = FLinearColor(0.008f, 0.04f, 0.07f);
@@ -71,6 +77,7 @@ namespace
 		FWeatherLook& Foggy = Looks[static_cast<int32>(ERaceWeather::Foggy)];
 		Foggy = Cloudy;
 		Foggy.Name = TEXT("Foggy");
+		Foggy.FoamBrightness = 0.75f;
 		Foggy.SunPitch = -30.f; Foggy.SunIntensity = 3.f;
 		Foggy.SkyIntensity = 1.4f; Foggy.FogDensity = 0.35f; Foggy.FogColor = WeatherSRGB(196, 204, 210);
 		Foggy.WaterTint = FLinearColor(0.008f, 0.05f, 0.06f);
@@ -79,6 +86,7 @@ namespace
 		FWeatherLook& Sunset = Looks[static_cast<int32>(ERaceWeather::Sunset)];
 		Sunset = Sunny;
 		Sunset.Name = TEXT("Sunset");
+		Sunset.FoamBrightness = 0.3f;
 		Sunset.SunPitch = -4.f; Sunset.SunYaw = 200.f; Sunset.SunIntensity = 7.f; Sunset.SunColor = FLinearColor(1.f, 0.55f, 0.25f);
 		Sunset.SkyIntensity = 1.1f; Sunset.FogDensity = 0.012f; Sunset.FogColor = WeatherSRGB(240, 160, 110);
 		Sunset.WaterTint = FLinearColor(0.012f, 0.05f, 0.12f);
@@ -87,6 +95,7 @@ namespace
 		FWeatherLook& Night = Looks[static_cast<int32>(ERaceWeather::Night)];
 		Night = Sunny;
 		Night.Name = TEXT("Night");
+		Night.FoamBrightness = 0.05f;
 		// Moonlight: the sky atmosphere goes dark blue with a dim, cold light.
 		Night.SunPitch = -35.f; Night.SunYaw = 60.f; Night.SunIntensity = 0.35f; Night.SunColor = FLinearColor(0.55f, 0.65f, 1.f);
 		Night.SkyIntensity = 0.6f; Night.FogDensity = 0.01f; Night.FogColor = WeatherSRGB(20, 28, 48);
