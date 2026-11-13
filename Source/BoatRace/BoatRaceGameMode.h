@@ -92,6 +92,8 @@ private:
 	void EndRace(ABoatRaceGameState* RaceState);
 
 	int32 FinishedCount = 0;
+	int32 EliminationsDone = 0;
+	void UpdateElimination(class ABoatRaceGameState* RaceState, float RaceTime);
 	float AutoRaceAfter = 0.f;
 	float FirstFinishServerTime = -1.f;
 };

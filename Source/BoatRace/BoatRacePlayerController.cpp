@@ -99,6 +99,29 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 
 	UpdateTimeTrial(DeltaTime);
 
+	// Test hook: -ShotAt=60,90 saves screenshots (with the HUD) at those times.
+	static TArray<float> ShotTimes;
+	static bool bShotsParsed = false;
+	if (!bShotsParsed)
+	{
+		bShotsParsed = true;
+		FString List;
+		if (FParse::Value(FCommandLine::Get(), TEXT("ShotAt="), List, false))
+		{
+			TArray<FString> Parts;
+			List.ParseIntoArray(Parts, TEXT(","));
+			for (const FString& Part : Parts)
+			{
+				ShotTimes.Add(FCString::Atof(*Part));
+			}
+		}
+	}
+	if (ShotTimes.Num() > 0 && GetWorld() && GetWorld()->GetTimeSeconds() >= ShotTimes[0])
+	{
+		FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("Shot_%03d"), FMath::RoundToInt(ShotTimes[0])), true, false);
+		ShotTimes.RemoveAt(0);
+	}
+
 	if (FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")))
 	{
 		RunPhotoTour(DeltaTime);
@@ -282,6 +305,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		}
 		Add(TEXT("Join by address"), EMenuAction::JoinAddress, TEXT("Type the host's IP address"));
 		Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
+		Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
 		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 		Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
@@ -295,6 +319,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		{
 			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
 			Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
+			Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
 			Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 			Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		}
@@ -500,6 +525,9 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		break;
 	case EMenuAction::Rivals:
 		ServerRaceOption(1, Step >= 0 ? 1 : -1);
+		break;
+	case EMenuAction::Mode:
+		ServerRaceOption(2, 1);
 		break;
 	case EMenuAction::Camera:
 		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->CycleCamera(Step >= 0 ? 1 : -1); }
@@ -769,7 +797,7 @@ void ABoatRacePlayerController::ServerRaceOption_Implementation(int32 Option, in
 	UWorld* World = GetWorld();
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
-		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 1), FMath::Clamp(Step, -1, 1));
+		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 2), FMath::Clamp(Step, -1, 1));
 	}
 }
 

@@ -95,6 +95,15 @@ public:
 
 	void GiveAmmo(int32 Torpedoes, int32 Mines);
 
+	/** Server only: tell the owner what they picked up (0 ammo, 1 shield). */
+	void NotifyPickup(uint8 Kind, uint8 Torpedoes, uint8 Mines) { ClientPickup(Kind, Torpedoes, Mines); }
+
+	/** Server only: shielded against damage for a while (a crate pickup). */
+	void GrantShield(float Seconds);
+
+	/** What the owner just picked up, for the HUD; empty when nothing recent. */
+	FString GetPickupMessage(float& OutAge) const { OutAge = PickupAge; return PickupMessage; }
+
 	/** -PhotoTour only: swing the camera round to look at the boat. */
 	void SetShowcaseCamera(bool bShowcase);
 
@@ -277,6 +286,9 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void ClientHitFeedback();
 
+	UFUNCTION(Client, Reliable)
+	void ClientPickup(uint8 Kind, uint8 Torpedoes, uint8 Mines);
+
 	UFUNCTION(Server, Reliable)
 	void ServerFireTorpedo();
 
@@ -439,6 +451,16 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> RoosterTail;
+
+	/** The shield: a soft bubble round the boat while it cannot be hurt. */
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> ShieldBubble;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> ShieldMaterial;
+
+	FString PickupMessage;
+	float PickupAge = 100.f;
 
 	/** Sheets of spray thrown off each side of the bow at speed. */
 	UPROPERTY()

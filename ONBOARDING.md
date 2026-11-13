@@ -121,6 +121,10 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 - **Time trial** (title screen): race alone against a see-through ghost of
   your best lap; each gate shows how far ahead (green) or behind (red) you
   are. The ghost is kept on your machine between sessions.
+- **Elimination** (host: Mode in the menu): every time the leader completes a
+  lap, whoever is last is out, until one boat is left.
+- Some crates hold a **shield** instead of ammunition: eight seconds when
+  nothing can hurt you, shown as a glowing bubble.
 - Turned turtle off a ramp? After a couple of seconds the boat rights itself.
 - Empty seats are taken by computer rivals (Kestrel, Marlin, Barracuda,
   Osprey), so there are always four boats. A friend who joins takes one.

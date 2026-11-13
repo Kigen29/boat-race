@@ -70,6 +70,13 @@ public:
 	UPROPERTY(Replicated)
 	int32 TotalLaps = 2;
 
+	/** Elimination: last place is knocked out every time the leader completes a lap. */
+	UPROPERTY(Replicated)
+	bool bElimination = false;
+
+	/** Server only: a line in everyone's feed ("Osprey eliminated"). */
+	void Announce(const FString& Text);
+
 	/** Time trial: alone against the ghost of your best lap. */
 	UPROPERTY(Replicated)
 	bool bTimeTrial = false;
@@ -92,6 +99,9 @@ protected:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastWreck(const FString& Victim, const FString& Attacker);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastNotice(const FString& Text);
 
 private:
 	TArray<FBoatKillFeedLine> KillFeed;

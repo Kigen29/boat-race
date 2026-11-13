@@ -205,12 +205,14 @@ void ABoatRaceHUD::BuildStandings(TArray<FStanding>& OutStandings) const
 		OutStandings.Add(Standing);
 	}
 
-	// Finishers in finishing order, then whoever has gone furthest.
-	Algo::Sort(OutStandings, [](const FStanding& A, const FStanding& B)
+	// Finishers in finishing order, then whoever has gone furthest, then the
+	// eliminated in the order they went out.
+	auto Group = [](const ABoatRacePlayerState* Player) { return Player->bEliminated ? 2 : (Player->bFinished ? 0 : 1); };
+	Algo::Sort(OutStandings, [&Group](const FStanding& A, const FStanding& B)
 	{
-		if (A.Player->bFinished != B.Player->bFinished)
+		if (Group(A.Player) != Group(B.Player))
 		{
-			return A.Player->bFinished;
+			return Group(A.Player) < Group(B.Player);
 		}
 		if (A.Player->bFinished)
 		{
@@ -446,7 +448,8 @@ void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<F
 	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.7f);
 	DrawLabel(TEXT("LOBBY"), X + 32.f * Scale, Y + 22.f * Scale, 2.6f * Scale, Ink, 0.f, true);
 	DrawLabel(FString::Printf(TEXT("%d / %d"), Standings.Num(), BoatTrack::MaxPlayers), X + PanelW - 32.f * Scale, Y + 30.f * Scale, 1.6f * Scale, Dim, 1.f);
-	DrawLabel(FString::Printf(TEXT("%s   ·   %d laps   ·   %s"), RaceWeather::Get(RaceState->GetWeather()).Name, RaceState->TotalLaps,
+	DrawLabel(FString::Printf(TEXT("%s   ·   %s   ·   %s"), RaceWeather::Get(RaceState->GetWeather()).Name,
+		*(RaceState->bElimination ? FString(TEXT("Elimination")) : FString::Printf(TEXT("%d laps"), RaceState->TotalLaps)),
 		RivalNames[FMath::Clamp<int32>(RaceState->RivalLevel, 0, 3)]), X + 32.f * Scale, Y + 76.f * Scale, 1.2f * Scale, Accent);
 
 	float RowY = Y + 116.f * Scale;
@@ -613,6 +616,12 @@ void ABoatRaceHUD::UpdateRaceCues(const ABoatRaceGameState* RaceState, const TAr
 		}
 		SeenLaps = Me->LapsCompleted;
 	}
+	if (Me->bEliminated && !bSeenFinish)
+	{
+		bSeenFinish = true;
+		BoatAudio::Play2D(this, EBoatSound::FinalLap, 0.7f, 0.8f);
+		ShowBanner(FString::Printf(TEXT("ELIMINATED   %s"), *Ordinal(Me->FinishPosition).ToUpper()), Bad, 4.f);
+	}
 	if (Me->bFinished && !bSeenFinish)
 	{
 		bSeenFinish = true;
@@ -666,7 +675,7 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 
 	if (Me->bFinished)
 	{
-		DrawLabel(FString::Printf(TEXT("FINISHED  %s"), *Ordinal(Me->FinishPosition)),
+		DrawLabel(FString::Printf(TEXT("%s  %s"), Me->bEliminated ? TEXT("OUT") : TEXT("FINISHED"), *Ordinal(Me->FinishPosition)),
 			Width * 0.5f, Height * 0.18f, 4.f * Scale, Accent, 0.5f, true);
 		DrawLabel(TEXT("Waiting for the other boats..."), Width * 0.5f, Height * 0.18f + 115.f * Scale, 1.3f * Scale, Dim, 0.5f);
 	}
@@ -677,6 +686,14 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	}
 	else if (MyBoat != nullptr)
 	{
+		float PickupAge = 0.f;
+		const FString Pickup = MyBoat->GetPickupMessage(PickupAge);
+		if (!Pickup.IsEmpty() && PickupAge < 2.f)
+		{
+			FLinearColor Colour = Pickup.StartsWith(TEXT("SHIELD")) ? FLinearColor(0.4f, 1.f, 1.f, 1.f) : Accent;
+			Colour.A = FMath::Clamp(2.f - PickupAge, 0.f, 1.f);
+			DrawLabel(Pickup, Width * 0.5f, Height * 0.68f, 2.f * Scale, Colour, 0.5f, true);
+		}
 		DrawHeadingStrip(MyBoat, Me, Width, Scale);
 		DrawGateMarker(MyBoat, Me, Width, Height, Scale);
 		DrawWrongWay(MyBoat, Me, Width, Height, Scale);
@@ -708,7 +725,19 @@ void ABoatRaceHUD::DrawStandingsBlock(const ABoatRaceGameState* RaceState, const
 	const int32 Lap = Me ? FMath::Clamp(Me->LapsCompleted + 1, 1, RaceState->TotalLaps) : 1;
 
 	DrawLabel(TEXT("LAP"), LabelX, Row, 1.15f * Scale, Faint);
-	DrawLabel(FString::Printf(TEXT("%d/%d"), Lap, RaceState->TotalLaps), ValueX, Row, 1.15f * Scale, Ink);
+	if (RaceState->bElimination)
+	{
+		int32 Left = 0;
+		for (const FStanding& Standing : Standings)
+		{
+			Left += Standing.Player->bEliminated ? 0 : 1;
+		}
+		DrawLabel(FString::Printf(TEXT("%d     %d boats left"), Lap, Left), ValueX, Row, 1.15f * Scale, Ink);
+	}
+	else
+	{
+		DrawLabel(FString::Printf(TEXT("%d/%d"), Lap, RaceState->TotalLaps), ValueX, Row, 1.15f * Scale, Ink);
+	}
 	Row += 26.f * Scale;
 
 	DrawLabel(TEXT("TIME"), LabelX, Row, 1.15f * Scale, Faint);

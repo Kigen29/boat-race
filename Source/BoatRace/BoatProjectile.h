@@ -238,6 +238,13 @@ public:
 	UPROPERTY(Config)
 	float PickupRadius = 420.f;
 
+	/** Chance a crate holds a shield instead of ammunition. */
+	UPROPERTY(Config)
+	float ShieldChance = 0.3f;
+
+	UPROPERTY(Config)
+	float ShieldSeconds = 8.f;
+
 protected:
 	UPROPERTY(Replicated)
 	bool bAvailable = true;

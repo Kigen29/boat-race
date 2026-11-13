@@ -780,7 +780,17 @@ void AWeaponCrate::Tick(float DeltaSeconds)
 		}
 		if (FVector::Dist(Boat->GetRaceLocation(), GetActorLocation()) <= PickupRadius)
 		{
-			Boat->GiveAmmo(Torpedoes, Mines);
+			// Some crates hold a shield instead of ammunition.
+			if (FMath::FRand() < ShieldChance)
+			{
+				Boat->GrantShield(ShieldSeconds);
+				Boat->NotifyPickup(1, 0, 0);
+			}
+			else
+			{
+				Boat->GiveAmmo(Torpedoes, Mines);
+				Boat->NotifyPickup(0, static_cast<uint8>(Torpedoes), static_cast<uint8>(Mines));
+			}
 			bAvailable = false;
 			RespawnAtServerTime = Now + RespawnSeconds;
 			return;

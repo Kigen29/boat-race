@@ -25,6 +25,7 @@ enum class EMenuAction : uint8
 	Weather,
 	Laps,
 	Rivals,
+	Mode,
 	Camera,
 	Steering,
 	Graphics,

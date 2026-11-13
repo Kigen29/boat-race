@@ -17,6 +17,7 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ABoatRaceGameState, WeatherIndex);
 	DOREPLIFETIME(ABoatRaceGameState, RivalLevel);
 	DOREPLIFETIME(ABoatRaceGameState, bTimeTrial);
+	DOREPLIFETIME(ABoatRaceGameState, bElimination);
 }
 
 void ABoatRaceGameState::BeginPlay()
@@ -72,6 +73,27 @@ void ABoatRaceGameState::MulticastWreck_Implementation(const FString& Victim, co
 
 	KillFeed.Add(Line);
 	// Only the last few are ever shown.
+	while (KillFeed.Num() > 6)
+	{
+		KillFeed.RemoveAt(0);
+	}
+}
+
+void ABoatRaceGameState::Announce(const FString& Text)
+{
+	if (HasAuthority())
+	{
+		MulticastNotice(Text);
+	}
+}
+
+void ABoatRaceGameState::MulticastNotice_Implementation(const FString& Text)
+{
+	FBoatKillFeedLine Line;
+	Line.Text = Text;
+	const UWorld* World = GetWorld();
+	Line.ArrivedAt = World ? static_cast<float>(World->GetTimeSeconds()) : 0.f;
+	KillFeed.Add(Line);
 	while (KillFeed.Num() > 6)
 	{
 		KillFeed.RemoveAt(0);

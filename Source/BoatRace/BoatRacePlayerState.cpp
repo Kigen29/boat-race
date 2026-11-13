@@ -15,6 +15,7 @@ void ABoatRacePlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(ABoatRacePlayerState, FinishPosition);
 	DOREPLIFETIME(ABoatRacePlayerState, BestLapTime);
 	DOREPLIFETIME(ABoatRacePlayerState, Hits);
+	DOREPLIFETIME(ABoatRacePlayerState, bEliminated);
 	DOREPLIFETIME(ABoatRacePlayerState, Wrecks);
 }
 
@@ -28,6 +29,7 @@ void ABoatRacePlayerState::ResetRace()
 	FinishPosition = 0;
 	BestLapTime = 0.f;
 	Hits = 0;
+	bEliminated = false;
 	Wrecks = 0;
 	LapStartTime = 0.f;
 }

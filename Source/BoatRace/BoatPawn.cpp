@@ -1037,6 +1037,24 @@ void ABoatPawn::Revive(float InvulnerableSeconds)
 	InvulnerableUntil = (RaceState ? RaceState->GetServerNow() : 0.f) + InvulnerableSeconds;
 }
 
+void ABoatPawn::GrantShield(float Seconds)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	const float Now = RaceState ? RaceState->GetServerNow() : 0.f;
+	InvulnerableUntil = FMath::Max(InvulnerableUntil, Now + Seconds);
+}
+
+void ABoatPawn::ClientPickup_Implementation(uint8 Kind, uint8 Torpedoes, uint8 Mines)
+{
+	PickupAge = 0.f;
+	PickupMessage = Kind == 1 ? FString(TEXT("SHIELD  8 s"))
+		: FString::Printf(TEXT("+%d TORPEDOES   +%d MINES"), Torpedoes, Mines);
+}
+
 void ABoatPawn::GiveAmmo(int32 Torpedoes, int32 Mines)
 {
 	if (!HasAuthority())
@@ -1480,6 +1498,19 @@ void ABoatPawn::BuildEffects()
 
 	Wake.Init(this);
 
+	// The shield bubble, hidden until the boat cannot be hurt.
+	ShieldBubble = NewObject<UStaticMeshComponent>(this);
+	ShieldBubble->SetStaticMesh(Sphere);
+	ShieldBubble->SetupAttachment(VisualRoot);
+	ShieldBubble->SetRelativeLocation(FVector(-40.f, 0.f, 60.f));
+	ShieldBubble->SetRelativeScale3D(FVector(9.f, 4.f, 3.4f));
+	ShieldBubble->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ShieldBubble->SetCastShadow(false);
+	ShieldBubble->RegisterComponent();
+	ShieldMaterial = BoatArt::SoftMaterial(ShieldBubble, FLinearColor(0.3f, 1.4f, 2.f), 0.f);
+	ShieldBubble->SetMaterial(0, ShieldMaterial);
+	ShieldBubble->SetVisibility(false);
+
 	// Bow spray: two fans of white water, mirrored, thrown aft and outwards.
 	if (UStaticMesh* Sheet = BoatArt::Model(TEXT("SpraySheet")))
 	{
@@ -1730,6 +1761,18 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 	}
 	FireLight->SetVisibility(bBurning);
 	FireLight->SetIntensity(bBurning ? 9000.f * (0.8f + 0.4f * FMath::Sin(Now * 23.f)) : 0.f);
+
+	// --- Shield bubble: shimmering while the boat cannot be hurt.
+	PickupAge += DeltaSeconds;
+	if (ShieldBubble != nullptr)
+	{
+		const bool bShielded = IsInvulnerable() && !bWrecked;
+		ShieldBubble->SetVisibility(bShielded);
+		if (bShielded)
+		{
+			BoatArt::SetPuff(ShieldMaterial, FLinearColor(0.3f, 1.4f, 2.f), 0.18f + 0.08f * FMath::Sin(Now * 6.f));
+		}
+	}
 
 	// --- Running light at night.
 	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;

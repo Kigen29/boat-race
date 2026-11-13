@@ -106,6 +106,10 @@ void ABoatRaceGameMode::RequestRaceOption(APlayerController* Requester, int32 Op
 		TotalLaps = FMath::Clamp(TotalLaps + Step, 1, 9);
 		RaceState->TotalLaps = TotalLaps;
 	}
+	else if (Option == 2)
+	{
+		RaceState->bElimination = !RaceState->bElimination;
+	}
 	else
 	{
 		RaceState->RivalLevel = static_cast<uint8>(FMath::Clamp(static_cast<int32>(RaceState->RivalLevel) + Step, 0, 3));
@@ -240,6 +244,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 	{
 		AutoRaceAfter = 0.f;
 		RaceState->bTimeTrial = FParse::Param(FCommandLine::Get(), TEXT("TimeTrial"));
+		RaceState->bElimination = FParse::Param(FCommandLine::Get(), TEXT("Elimination"));
 		StartCountdown(RaceState);
 	}
 
@@ -357,6 +362,7 @@ void ABoatRaceGameMode::UpdateWrecks(ABoatRaceGameState* RaceState)
 void ABoatRaceGameMode::StartCountdown(ABoatRaceGameState* RaceState)
 {
 	FinishedCount = 0;
+	EliminationsDone = 0;
 	FirstFinishServerTime = -1.f;
 
 	for (APlayerState* Player : RaceState->PlayerArray)
@@ -446,7 +452,8 @@ void ABoatRaceGameMode::UpdateRacing(ABoatRaceGameState* RaceState)
 			}
 			RacePlayer->LapStartTime = RaceTime;
 
-			if (RacePlayer->LapsCompleted >= RaceState->TotalLaps)
+			// In an elimination race the laps never run out: it ends when one is left.
+			if (!RaceState->bElimination && RacePlayer->LapsCompleted >= RaceState->TotalLaps)
 			{
 				RacePlayer->bFinished = true;
 				RacePlayer->FinishTime = RaceTime;
@@ -466,11 +473,68 @@ void ABoatRaceGameMode::UpdateRacing(ABoatRaceGameState* RaceState)
 		RacePlayer->NextGate = (RacePlayer->NextGate + 1) % Gates.Num();
 	}
 
+	if (RaceState->bElimination && !RaceState->bTimeTrial)
+	{
+		UpdateElimination(RaceState, RaceTime);
+		return;
+	}
+
 	const bool bEveryoneHome = RacerCount == 0 || FinishedCount >= RacerCount;
 	const bool bGraceExpired = FirstFinishServerTime >= 0.f && (Now - FirstFinishServerTime) > FinishGraceSeconds;
 	if (bEveryoneHome || bGraceExpired)
 	{
 		EndRace(RaceState);
+	}
+}
+
+void ABoatRaceGameMode::UpdateElimination(ABoatRaceGameState* RaceState, float RaceTime)
+{
+	// Who is still in, and how far round each has got (gates passed, less the
+	// distance still to run to the next one).
+	struct FRunner { ABoatRacePlayerState* Player; float Progress; };
+	TArray<FRunner> Running;
+	int32 LeaderLaps = 0;
+	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
+	for (APlayerState* Player : RaceState->PlayerArray)
+	{
+		ABoatRacePlayerState* Racer = Cast<ABoatRacePlayerState>(Player);
+		const ABoatPawn* Boat = Racer ? Cast<ABoatPawn>(Racer->GetPawn()) : nullptr;
+		if (Boat == nullptr || Racer->bFinished)
+		{
+			continue;
+		}
+		const FVector Location = Boat->GetRaceLocation();
+		const float ToNext = Gates.IsValidIndex(Racer->NextGate)
+			? static_cast<float>((Gates[Racer->NextGate].Center - FVector2D(Location.X, Location.Y)).Size()) : 0.f;
+		Running.Add({ Racer, Racer->GatesPassed * 100000.f - ToNext });
+		LeaderLaps = FMath::Max(LeaderLaps, Racer->LapsCompleted);
+	}
+	if (Running.Num() <= 1)
+	{
+		if (Running.Num() == 1)
+		{
+			ABoatRacePlayerState* Winner = Running[0].Player;
+			Winner->bFinished = true;
+			Winner->FinishPosition = 1;
+			Winner->FinishTime = RaceTime;
+			RaceState->Announce(FString::Printf(TEXT("%s wins the elimination!"), *Winner->GetPlayerName()));
+			UE_LOG(LogBoatRace, Log, TEXT("%s won the elimination."), *Winner->GetPlayerName());
+		}
+		EndRace(RaceState);
+		return;
+	}
+	// Each lap the leader completes knocks out whoever is last.
+	if (LeaderLaps > EliminationsDone)
+	{
+		Running.Sort([](const FRunner& A, const FRunner& B) { return A.Progress > B.Progress; });
+		ABoatRacePlayerState* Last = Running.Last().Player;
+		Last->bEliminated = true;
+		Last->bFinished = true;
+		Last->FinishPosition = Running.Num();
+		Last->FinishTime = RaceTime;
+		++EliminationsDone;
+		RaceState->Announce(FString::Printf(TEXT("%s is eliminated"), *Last->GetPlayerName()));
+		UE_LOG(LogBoatRace, Log, TEXT("%s eliminated in position %d."), *Last->GetPlayerName(), Last->FinishPosition);
 	}
 }
 

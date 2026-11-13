@@ -35,6 +35,10 @@ public:
 	UPROPERTY(Replicated)
 	bool bFinished = false;
 
+	/** Knocked out in an elimination race (also counts as finished). */
+	UPROPERTY(Replicated)
+	bool bEliminated = false;
+
 	/** Race time at the finish, seconds. */
 	UPROPERTY(Replicated)
 	float FinishTime = 0.f;
