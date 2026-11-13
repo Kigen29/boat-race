@@ -68,6 +68,17 @@ echo "Installed. Open 'Boat Race' from your apps (or run \$GAME/BoatRace.sh)."
 echo "On the menu, press the number next to your friend's race to join."
 INSTALL
 
+# Windows friends without a Windows build run the Linux one inside WSL: a
+# double-clickable installer that fetches Scripts/windows_install.ps1 (with
+# this address filled in) and runs it as administrator.
+sed -e "s/@ADDRESS@/$ADDRESS/g" -e "s/@PORT@/$PORT/g" "$PROJECT_DIR/Scripts/windows_install.ps1" > "$SERVE/install-windows.ps1"
+printf '%s\r\n' \
+	'@echo off' \
+	'rem Installs Boat Race inside WSL. It asks for administrator rights once.' \
+	"net session >nul 2>&1 || (powershell -NoProfile -Command \"Start-Process -Verb RunAs -FilePath '%~f0'\" & exit /b)" \
+	"powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$f = Join-Path \$env:TEMP 'boatrace-install.ps1'; Invoke-WebRequest -UseBasicParsing 'http://$ADDRESS:$PORT/install-windows.ps1' -OutFile \$f; & \$f\"" \
+	> "$SERVE/Install Boat Race.bat"
+
 # A page for anyone who opens the address in a browser, Windows friends above all.
 {
 	echo '<!doctype html><meta charset="utf-8"><title>Boat Race</title>'
@@ -78,7 +89,12 @@ INSTALL
 		echo "($(( $(stat -L -c %s "$WINDOWS") / 1048576 )) MB). Right-click it, <i>Extract All</i>, then open the folder and"
 		echo 'double-click <b>Play Boat Race.bat</b>. When Windows asks about the firewall, allow <i>Private networks</i>.</p>'
 	else
-		echo '<h2>Windows</h2><p>No Windows copy yet: it has to be built on a Windows PC with Scripts/package_windows.bat.</p>'
+		echo '<h2>Windows 10 or 11</h2>'
+		echo '<p><a href="Install%20Boat%20Race.bat"><b>Download Install Boat Race.bat</b></a> and double-click it.'
+		echo 'If Windows says it protected your PC, click <i>More info</i> then <i>Run anyway</i>, and say Yes to the'
+		echo 'administrator question. It sets up WSL (Linux inside Windows, about 1 GB; the first time it may ask'
+		echo 'you to restart the PC and run it again), downloads the game and puts <b>Boat Race</b> on your desktop.</p>'
+		echo '<p>If Boat Race does not open or is very slow, use <b>Boat Race (safe mode)</b>.</p>'
 	fi
 	echo '<h2>Linux</h2><p>Open a terminal and paste:</p>'
 	echo "<pre>wget -qO- http://$ADDRESS:$PORT/install.sh | bash</pre>"
@@ -96,7 +112,9 @@ if [ -f "$WINDOWS" ]; then
 	echo "    http://$ADDRESS:$PORT"
 	echo
 else
-	echo "(No Windows copy in dist/. Build one on a Windows PC with Scripts/package_windows.bat.)"
+	echo "Windows friends open this in a browser and run the installer it offers:"
+	echo
+	echo "    http://$ADDRESS:$PORT"
 	echo
 fi
 echo "Leave this running until everyone has it, then press Ctrl+C."

@@ -41,7 +41,9 @@ Scripts/test_4_players.sh      # four windows on one machine (needs a real GPU)
 Windows copy: only on a Windows PC (Unreal cannot cross-compile to Windows
 from Linux, and the Linux engine here has no Win64 libraries):
 `Scripts\package_windows.bat` -> `dist\BoatRace-Windows.zip`, which
-`share.sh` offers on a download page when it is in `dist/`.
+`share.sh` offers on a download page when it is in `dist/`. Without one, the
+page offers `Install Boat Race.bat`, which runs `Scripts/windows_install.ps1`
+(address filled in) to install the Linux copy inside WSL. Untested on Windows.
 
 `setup.sh` stops rather than building a folder that is behind the repository.
 If it says files differ, `git restore .` takes the repository's version.

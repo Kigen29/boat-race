@@ -57,24 +57,40 @@ picks automatically.
 
 ## Friends on Windows
 
-Windows and Linux players race together on the same Wi-Fi. The Windows copy
-has to be built once on a Windows PC, because Unreal cannot make Windows games
-on Linux:
+Windows and Linux players race together on the same Wi-Fi. There are two ways
+in.
 
-1. On a Windows PC with **Unreal Engine 5.9** (the same version as the Linux
-   host, from the Epic Games Launcher) and **Visual Studio 2022** with the
-   *Game development with C++* workload: clone the repository and double-click
-   `Scripts\package_windows.bat`. It compiles, imports the models, packages
-   and leaves `dist\BoatRace-Windows.zip` (about 30–60 minutes the first time).
-2. Copy that zip into `dist/` on the Linux host and run `Scripts/share.sh`.
-   It now also prints a web address.
-3. Windows friends open that address in a browser, download the zip,
-   *Extract All*, and double-click **Play Boat Race.bat**. When Windows asks
-   about the firewall, allow *Private networks*; then the host's race is on
-   their menu like everyone else's.
+### No Windows PC to build on: run the Linux copy inside Windows
 
-Rebuild the Windows copy whenever the game changes, or the versions will not
-match and Windows players cannot join.
+`share.sh` prints a web address as well as the Linux line. A Windows friend:
+
+1. Opens that address in a browser and downloads **Install Boat Race.bat**.
+2. Double-clicks it. If Windows says it protected the PC: *More info* then
+   *Run anyway*, and *Yes* to the administrator question.
+3. Waits. It turns on WSL (Windows' built-in Linux, about 1 GB), sets it to
+   share the PC's network, installs graphics drivers, downloads the game from
+   the host and puts **Boat Race** on the desktop. The very first time,
+   Windows may need a restart: restart, then double-click the installer again.
+4. Plays with the **Boat Race** icon. If it will not open or is very slow,
+   **Boat Race (safe mode)** draws with the processor instead of the graphics
+   card: slower, but it works anywhere.
+
+Needs Windows 10 21H2 or Windows 11, with virtualisation turned on in the
+BIOS (it usually is). On Windows 11 22H2 or later, races appear on the menu by
+themselves; on older Windows, press **J** and type the host's address.
+
+This route has not been tried on a real Windows PC yet. How fast it runs
+depends on how well WSL drives that PC's graphics.
+
+### A Windows PC with Unreal Engine: a real Windows build
+
+On a Windows PC with **Unreal Engine 5.9** (the same version as the Linux
+host) and **Visual Studio 2022** with *Game development with C++*: clone the
+repository and double-click `Scripts\package_windows.bat`. It leaves
+`dist\BoatRace-Windows.zip`. Copy that into `dist/` on the Linux host, and
+`share.sh` offers it on the download page instead of the WSL installer:
+friends unzip it and double-click **Play Boat Race.bat**. Rebuild it whenever
+the game changes, or the versions will not match.
 
 ## Controls
 
