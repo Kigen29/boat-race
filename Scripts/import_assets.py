@@ -198,6 +198,10 @@ def build_water_material(normal_texture):
     crest = g.sat(g.mul(height, g.const(1.0 / 90.0)))
     shallow = g.add(g.mul(deep, g.const(3.2)), g.vec(0.0, 0.035, 0.03))
     water = g.lerp(deep, shallow, g.mul(crest, g.const(0.65)))
+    # Towards the horizon water reflects the sky: blend to the "Sky" colour
+    # (set per weather by the game) as the view grazes the surface.
+    fres = g.node(unreal.MaterialExpressionFresnel, exponent=5.0, base_reflect_fraction=0.02)
+    water = g.lerp(water, g.vparam("Sky", 0.35, 0.5, 0.65), g.mul(fres, g.const(0.7)))
     n1, n2 = g.noise(0.006), g.noise(0.04)
     patches = g.sat(g.mul(g.sub(g.add(g.mul(n1, g.const(0.5)), g.mul(n2, g.const(0.5))), g.const(0.35)), g.const(3.0)))
     vertex = g.node(unreal.MaterialExpressionVertexColor)

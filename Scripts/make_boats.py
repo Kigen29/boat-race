@@ -429,6 +429,59 @@ def nav_lights(m, x_bow, y, z):
 
 
 # ---------------------------------------------------------------------------
+# People: built from rounded parts and bevelled, so they read as figures
+# rather than stacked blocks. Origin at the seat surface (seated) or the
+# soles (standing); facing +X.
+# ---------------------------------------------------------------------------
+def person(x, y, z, pose="seated", skin="Skin_C68B59", shirt="Paint_E53935", legs="Pants_2B3A55",
+           head="hair", hands=None, helmet="Paint_E53935"):
+    """A figure from capsules (limbs run continuously through the joints) and
+    a softened torso. hands=(x, y, z) in boat space for a driver's grip."""
+    p = Model("tmp")
+    lift = 0.92 if pose == "standing" else 0.0
+    glove = "Glove_151515" if head == "helmet" else skin
+    for side in (1, -1):
+        hip = (0.0, side * 0.1, lift + 0.08)
+        if pose == "standing":
+            knee, ankle = (0.02, side * 0.11, 0.48), (0.0, side * 0.11, 0.08)
+            toe = (0.16, side * 0.11, 0.04)
+        else:
+            knee, ankle = (0.42, side * 0.11, 0.1), (0.48, side * 0.12, -0.34)
+            toe = (0.62, side * 0.12, -0.38)
+        tube(p, [hip, knee, ankle], 0.075, legs, segs=10)
+        tube(p, [ankle, toe], 0.055, "Shoe_202020", segs=8)
+        shoulder = (-0.03, side * 0.22, lift + 0.66)
+        if hands is not None:
+            grip = (hands[0] - x, hands[1] - y + side * 0.12, hands[2] - z)
+            elbow = ((shoulder[0] + grip[0]) * 0.5 - 0.02, side * 0.27, (shoulder[2] + grip[2]) * 0.5 - 0.12)
+        elif pose == "standing":
+            grip = (0.12, side * 0.24, lift + 0.12)
+            elbow = (0.0, side * 0.26, lift + 0.38)
+        else:
+            grip = (0.3, side * 0.18, 0.2)
+            elbow = (0.02, side * 0.25, 0.4)
+        tube(p, [shoulder, elbow], 0.055, shirt, segs=10)
+        tube(p, [elbow, grip], 0.045, skin if head != "helmet" else shirt, segs=10)
+        p.sphere(0.055, grip, glove, segs=10, rings=6)
+    torso = Model("tmp2")
+    torso.box((0.24, 0.4, 0.52), (-0.03, 0, lift + 0.42), shirt, rot=(0, -5, 0))
+    torso.box((0.24, 0.34, 0.2), (-0.01, 0, lift + 0.12), legs)
+    tobj = to_object("torso", torso.bm, torso.mats)
+    soften(tobj, 0.09, 4)
+    p.cyl(0.055, 0.055, 0.12, (-0.03, 0, lift + 0.72), skin, segs=10)
+    if head == "helmet":
+        p.sphere(0.16, (-0.02, 0, lift + 0.88), helmet, scale=(1.05, 0.95, 1.0), segs=18, rings=12)
+        p.sphere(0.13, (0.05, 0, lift + 0.87), "Glass_0B0F14", scale=(0.75, 0.95, 0.5), segs=16, rings=8)
+    else:
+        p.sphere(0.115, (-0.02, 0, lift + 0.86), skin, scale=(1.0, 0.9, 1.1), segs=16, rings=10)
+        p.sphere(0.12, (-0.045, 0, lift + 0.9), "Hair_2B1D14", scale=(1.0, 0.95, 0.75), segs=16, rings=8)
+    obj = to_object("person", p.bm, p.mats)
+    for o in (obj, tobj):
+        o.location = (x, y, z)
+    return [obj, tobj]
+
+
+# ---------------------------------------------------------------------------
 # The race boat: a 7.2 m twin-step offshore performance hull, twin outboards
 # ---------------------------------------------------------------------------
 def offshore_boat():
@@ -469,8 +522,14 @@ def offshore_boat():
     for side in (1, -1):
         m.box((0.3, 0.32, 0.02), (-3.74, side * 0.75, -0.42), "Chrome_C7CCD1")
     motors = [outboard(m, -4.0, y, 0.3, scale=1.0, stripe="Paint_E53935") for y in (0.42, -0.42)]
+    # The crew: a driver at the wheel and a throttleman beside, helmeted in
+    # the team colour.
+    crew = person(-0.98, 0.42, 0.18, hands=(-0.3, 0.42, 0.62), head="helmet", shirt="Suit_1E2126", legs="Suit_1E2126",
+                  helmet="Paint_E53935")
+    crew += person(-0.98, -0.42, 0.18, hands=(-0.3, -0.42, 0.6), head="helmet", shirt="Suit_1E2126", legs="Suit_1E2126",
+                   helmet="Paint_E53935")
     details = to_object("RaceBoatParts", m.bm, m.mats, smooth=False)
-    return join_and_export("RaceBoat", [hull, details] + seats + motors)
+    return join_and_export("RaceBoat", [hull, details] + seats + motors + crew)
 
 
 def center_console():
@@ -502,8 +561,10 @@ def center_console():
     nav_lights(m, 4.7, 0.2, 1.05)
     m.box((0.35, 2.1, 0.5), (-5.15, 0, 0.35), "Bracket_EDEFF1")
     motors = [outboard(m, -5.4, y, 0.55, scale=1.1, cowl="Cowl_F7F7F7", stripe="Paint_1565C0") for y in (-0.7, 0.0, 0.7)]
+    skipper = person(-0.15, 0.0, 0.25, pose="standing", shirt="Shirt_F5F5F5", legs="Pants_C9B38E", skin="Skin_8D5524")
+    guest = person(-1.1, 0.3, 0.75, shirt="Shirt_26A69A", legs="Pants_37474F", skin="Skin_F1C27D")
     details = to_object("CCParts", m.bm, m.mats, smooth=False)
-    return join_and_export("CenterConsole", [hull, details] + motors)
+    return join_and_export("CenterConsole", [hull, details] + motors + skipper + guest)
 
 
 def jet_ski():
@@ -522,8 +583,9 @@ def jet_ski():
     tube(m, [(0.3, -0.38, 0.98), (0.3, 0.38, 0.98)], 0.022, "Wheel_111111")
     windscreen(m, x_front=0.95, half_w=0.32, z_base=0.66, height=0.16, rake=0.2, sweep=0.12)
     m.box((0.25, 0.5, 0.1), (-1.6, 0, -0.05), "Leg_1A1A1A")
+    rider = person(-0.35, 0.0, 0.62, shirt="Shirt_FFEB3B", legs="Pants_1A237E", skin="Skin_C68B59")
     details = to_object("JetParts", m.bm, m.mats, smooth=False)
-    return join_and_export("JetSki", [hull, details, obj])
+    return join_and_export("JetSki", [hull, details, obj] + rider)
 
 
 def spray_sheet():
@@ -582,4 +644,36 @@ def yacht_v2():
     return join_and_export("Yacht", [hull, details, sup])
 
 
-BOATS = [offshore_boat, center_console, jet_ski, spray_sheet, yacht_v2]
+def spectator(name, skin, hair):
+    parts = person(0, 0, 0, shirt="Paint_E53935", legs="Pants_37474F", skin=skin)
+    for o in parts:
+        for slot in o.data.materials:
+            pass
+    return join_and_export(name, parts)
+
+
+def ripple():
+    """A raindrop ring for the water: bright at the rim, clear inside and out."""
+    bm = bmesh.new()
+    col = bm.loops.layers.float_color.new("Col")
+    radii, alphas = (0.0, 0.78, 0.9, 1.0), (0.0, 0.0, 1.0, 0.0)
+    rings = []
+    for r in radii:
+        rings.append([bm.verts.new((r * math.cos(k / 24 * math.tau), r * math.sin(k / 24 * math.tau), 0.0)) for k in range(24)])
+    for a in range(len(rings) - 1):
+        for k in range(24):
+            f = bm.faces.new((rings[a][k], rings[a][(k + 1) % 24], rings[a + 1][(k + 1) % 24], rings[a + 1][k]))
+            for loop in f.loops:
+                r = loop.vert.co.length
+                i = min(range(4), key=lambda q: abs(radii[q] - r))
+                loop[col] = (1.0, 1.0, 1.0, alphas[i])
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
+    obj = to_object("Ripple", bm, ["Foam_FFFFFF"], smooth=True)
+    obj.data.color_attributes.active_color = obj.data.color_attributes.get("Col")
+    return join_and_export("Ripple", [obj])
+
+
+BOATS = [offshore_boat, center_console, jet_ski, spray_sheet, yacht_v2, ripple,
+         lambda: spectator("SpectatorA", "Skin_C68B59", "Hair_2B1D14"),
+         lambda: spectator("SpectatorB", "Skin_8D5524", "Hair_111111"),
+         lambda: spectator("SpectatorC", "Skin_F1C27D", "Hair_A0522D")]

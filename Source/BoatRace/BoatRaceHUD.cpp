@@ -2,6 +2,7 @@
 
 #include "BoatAudio.h"
 #include "BoatPawn.h"
+#include "BoatPrefs.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
 #include "BoatTrack.h"
@@ -435,39 +436,34 @@ int32 ABoatRaceHUD::HitTestMenu(const FVector2D& Point) const
 
 void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings, float Width, float Height, float Scale)
 {
-	const float CentreX = Width * 0.5f;
-	float Y = 55.f * Scale;
-
-	DrawLabel(FString::Printf(TEXT("LOBBY   %d / %d"), Standings.Num(), BoatTrack::MaxPlayers),
-		CentreX, Y, 2.2f * Scale, Ink, 0.5f, true);
-	Y += 74.f * Scale;
-
+	// A panel at the top: who is in, the race settings, and what happens next.
 	const APlayerController* Controller = GetOwningPlayerController();
 	const bool bHost = Controller != nullptr && Controller->HasAuthority();
-	DrawLabel(bHost ? TEXT("You are the host. Press ENTER to start.") : TEXT("Waiting for the host to start the race..."),
-		CentreX, Y, 1.6f * Scale, Accent, 0.5f);
-	Y += 42.f * Scale;
-	DrawLabel(TEXT("Warm up on the course.   L  leave"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
-	Y += 40.f * Scale;
-	DrawLabel(FString::Printf(TEXT("Weather: %s%s"), RaceWeather::Get(RaceState->GetWeather()).Name,
-		bHost ? TEXT("      (TAB to change)") : TEXT("")), CentreX, Y, 1.4f * Scale, Ink, 0.5f);
-	Y += 38.f * Scale;
-	if (Standings.Num() < BoatTrack::MaxPlayers)
-	{
-		DrawLabel(FString::Printf(TEXT("%d empty seat%s will be filled by computer rivals"),
-			BoatTrack::MaxPlayers - Standings.Num(), BoatTrack::MaxPlayers - Standings.Num() == 1 ? TEXT("") : TEXT("s")),
-			CentreX, Y, 1.2f * Scale, Dim, 0.5f);
-	}
+	static const TCHAR* const RivalNames[] = { TEXT("No rivals"), TEXT("Easy rivals"), TEXT("Normal rivals"), TEXT("Hard rivals") };
+	const float PanelW = 620.f * Scale;
+	const float PanelH = (190.f + BoatTrack::MaxPlayers * 40.f) * Scale;
+	const float X = (Width - PanelW) * 0.5f, Y = 70.f * Scale;
+	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.7f);
+	DrawLabel(TEXT("LOBBY"), X + 32.f * Scale, Y + 22.f * Scale, 2.6f * Scale, Ink, 0.f, true);
+	DrawLabel(FString::Printf(TEXT("%d / %d"), Standings.Num(), BoatTrack::MaxPlayers), X + PanelW - 32.f * Scale, Y + 30.f * Scale, 1.6f * Scale, Dim, 1.f);
+	DrawLabel(FString::Printf(TEXT("%s   ·   %d laps   ·   %s"), RaceWeather::Get(RaceState->GetWeather()).Name, RaceState->TotalLaps,
+		RivalNames[FMath::Clamp<int32>(RaceState->RivalLevel, 0, 3)]), X + 32.f * Scale, Y + 76.f * Scale, 1.2f * Scale, Accent);
 
-	float ListY = 55.f * Scale;
-	const float ListX = 44.f * Scale;
-	for (const FStanding& Standing : Standings)
+	float RowY = Y + 116.f * Scale;
+	for (int32 Slot = 0; Slot < BoatTrack::MaxPlayers; ++Slot)
 	{
-		DrawRect(BoatTrack::GetPlayerColor(Standing.Player->SlotIndex), ListX, ListY + 6.f * Scale, 18.f * Scale, 18.f * Scale);
-		DrawLabel(FString::Printf(TEXT("P%d  %s"), Standing.Player->SlotIndex + 1, *Standing.Player->GetPlayerName()),
-			ListX + 32.f * Scale, ListY, 1.4f * Scale, Ink);
-		ListY += 38.f * Scale;
+		const FStanding* Found = Standings.FindByPredicate([Slot](const FStanding& S) { return S.Player && S.Player->SlotIndex == Slot; });
+		DrawRect(BoatTrack::GetPlayerColor(Slot), X + 32.f * Scale, RowY + 6.f * Scale, 6.f * Scale, 22.f * Scale);
+		DrawLabel(Found ? Found->Player->GetPlayerName() : FString(TEXT("open seat")), X + 50.f * Scale, RowY, 1.35f * Scale,
+			Found ? Ink : Faint);
+		if (!Found && RaceState->RivalLevel > 0)
+		{
+			DrawLabel(TEXT("rival at the start"), X + PanelW - 32.f * Scale, RowY + 3.f * Scale, 1.05f * Scale, Faint, 1.f);
+		}
+		RowY += 40.f * Scale;
 	}
+	DrawLabel(bHost ? TEXT("ENTER start the race      ESC menu: laps, rivals, weather") : TEXT("Waiting for the host to start...      ESC menu"),
+		X + 32.f * Scale, Y + PanelH - 40.f * Scale, 1.1f * Scale, Dim);
 
 	if (const ABoatPawn* Boat = Cast<ABoatPawn>(Controller ? Controller->GetPawn() : nullptr))
 	{
@@ -606,12 +602,23 @@ void ABoatRaceHUD::UpdateRaceCues(const ABoatRaceGameState* RaceState, const TAr
 			BoatAudio::Play2D(this, bFinal ? EBoatSound::FinalLap : EBoatSound::LapChime, 0.75f);
 			ShowBanner(bFinal ? FString(TEXT("FINAL LAP")) : FString::Printf(TEXT("LAP %d / %d"), Me->LapsCompleted + 1, RaceState->TotalLaps),
 				bFinal ? Accent : Ink);
+			// The lap just finished is the newest best lap if it beat it.
+			UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+			if (Prefs != nullptr && Me->BestLapTime > 0.f && Prefs->OfferLap(Me->BestLapTime))
+			{
+				ShowBanner(FString::Printf(TEXT("NEW LAP RECORD  %s"), *FormatTime(Me->BestLapTime)), FLinearColor(0.3f, 1.f, 1.f, 1.f), 3.f);
+			}
 		}
 		SeenLaps = Me->LapsCompleted;
 	}
 	if (Me->bFinished && !bSeenFinish)
 	{
 		bSeenFinish = true;
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+		{
+			Prefs->OfferLap(Me->BestLapTime);
+			Prefs->OfferRace(RaceState->TotalLaps, Me->FinishTime);
+		}
 		BoatAudio::Play2D(this, Me->FinishPosition == 1 ? EBoatSound::Fanfare : EBoatSound::LapChime, 0.8f);
 		ShowBanner(Me->FinishPosition == 1 ? FString(TEXT("YOU WIN!")) : FString::Printf(TEXT("%s PLACE"), *Ordinal(Me->FinishPosition).ToUpper()),
 			Me->FinishPosition == 1 ? Accent : Ink, 4.f);
@@ -707,6 +714,15 @@ void ABoatRaceHUD::DrawStandingsBlock(const ABoatRaceGameState* RaceState, const
 
 	DrawLabel(TEXT("BEST"), LabelX, Row, 1.15f * Scale, Faint);
 	DrawLabel((Me && Me->BestLapTime > 0.f) ? FormatTime(Me->BestLapTime) : FString(TEXT("--")), ValueX, Row, 1.15f * Scale, Ink);
+	if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+	{
+		if (Prefs->BestLap > 0.f)
+		{
+			Row += 22.f * Scale;
+			DrawLabel(TEXT("RECORD"), LabelX, Row, 1.15f * Scale, Faint);
+			DrawLabel(FormatTime(Prefs->BestLap), ValueX, Row, 1.15f * Scale, FLinearColor(0.3f, 1.f, 1.f, 1.f));
+		}
+	}
 	Row += 42.f * Scale;
 
 	// The order, with the gap to the leader in seconds.
@@ -766,7 +782,7 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	}
 
 	const float RightX = Width - 44.f * Scale;
-	float Y = Height - 132.f * Scale;
+	float Y = Height - 184.f * Scale;
 
 	const float HealthFraction = Boat->GetHealth() / FMath::Max(Boat->GetMaxHealth(), 1.f);
 	const FLinearColor HullColor = (HealthFraction > 0.55f) ? Good : (HealthFraction > 0.25f ? Accent : Bad);
@@ -781,6 +797,16 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 		DrawLabel(TEXT("SHIELDED"), RightX, Y, 1.1f * Scale, Good, 1.f);
 		Y += 24.f * Scale;
 	}
+
+	// Boost tank: cyan, flashing while it fires.
+	const float Boost = Boat->GetBoost();
+	const bool bFiring = Boat->IsBoosting();
+	const FLinearColor BoostColour = bFiring ? FLinearColor(0.6f, 1.f, 1.f, 1.f) : FLinearColor(0.1f, 0.8f, 1.f, 1.f);
+	DrawLabel(TEXT("BOOST   SHIFT"), RightX - 230.f * Scale, Y, 1.1f * Scale, Boost > 0.15f ? Dim : Faint);
+	DrawLabel(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Boost * 100.f)), RightX, Y, 1.1f * Scale, BoostColour, 1.f);
+	Y += 24.f * Scale;
+	DrawBar(RightX - 230.f * Scale, Y, 230.f * Scale, 9.f * Scale, Boost, BoostColour);
+	Y += 28.f * Scale;
 
 	const int32 Torpedoes = Boat->GetTorpedoAmmo();
 	const int32 Mines = Boat->GetMineAmmo();
@@ -1050,46 +1076,63 @@ void ABoatRaceHUD::DrawDamageEdge(const ABoatPawn* Boat, float Width, float Heig
 // ---------------------------------------------------------------------------
 void ABoatRaceHUD::DrawResults(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings, float Width, float Height, float Scale)
 {
-	const float PanelWidth = 900.f * Scale;
-	const float PanelHeight = (250.f + Standings.Num() * 56.f) * Scale;
-	const float PanelX = (Width - PanelWidth) * 0.5f;
-	const float PanelY = Height * 0.15f;
-	DrawRect(Panel, PanelX, PanelY, PanelWidth, PanelHeight);
+	DrawRect(FLinearColor(0.f, 0.01f, 0.03f, 0.35f), 0.f, 0.f, Width, Height);
 
-	const float CentreX = Width * 0.5f;
-	float Y = PanelY + 26.f * Scale;
-	DrawLabel(TEXT("RESULTS"), CentreX, Y, 3.f * Scale, Ink, 0.5f, true);
-	Y += 104.f * Scale;
+	// The podium: first in the middle and highest, in each boat's colour.
+	const float Base = Height * 0.52f;
+	const float BlockW = 200.f * Scale;
+	const int32 Order[] = { 1, 0, 2 }; // left: 2nd, middle: 1st, right: 3rd
+	const float Heights[] = { 150.f, 210.f, 110.f };
+	for (int32 Column = 0; Column < 3; ++Column)
+	{
+		const int32 Place = Order[Column];
+		if (!Standings.IsValidIndex(Place))
+		{
+			continue;
+		}
+		const ABoatRacePlayerState* Player = Standings[Place].Player;
+		const float X = Width * 0.5f + (Column - 1) * (BlockW + 16.f * Scale) - BlockW * 0.5f;
+		const float H = Heights[Place] * Scale;
+		FLinearColor Colour = BoatTrack::GetPlayerColor(Player->SlotIndex);
+		Colour.A = 0.85f;
+		DrawRect(Colour, X, Base - H, BlockW, H);
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.18f), X, Base - H, BlockW, 4.f * Scale);
+		DrawLabel(FString::FromInt(Place + 1), X + BlockW * 0.5f, Base - H + 14.f * Scale, 3.4f * Scale, Ink, 0.5f, true);
+		DrawLabel(Player->GetPlayerName(), X + BlockW * 0.5f, Base - H - 44.f * Scale, 1.5f * Scale, Ink, 0.5f, true);
+		DrawLabel(Player->bFinished ? FormatTime(Player->FinishTime) : FString(TEXT("DNF")), X + BlockW * 0.5f, Base - 40.f * Scale,
+			1.3f * Scale, Ink, 0.5f);
+	}
+	DrawLabel(TEXT("RESULTS"), Width * 0.5f, Height * 0.08f, 3.4f * Scale, Ink, 0.5f, true);
 
-	DrawLabel(TEXT("TIME"), PanelX + PanelWidth - 300.f * Scale, Y - 26.f * Scale, 1.f * Scale, Faint, 1.f);
-	DrawLabel(TEXT("BEST LAP"), PanelX + PanelWidth - 170.f * Scale, Y - 26.f * Scale, 1.f * Scale, Faint, 1.f);
-	DrawLabel(TEXT("HITS"), PanelX + PanelWidth - 50.f * Scale, Y - 26.f * Scale, 1.f * Scale, Faint, 1.f);
-
+	// The full table under the podium.
+	const float PanelW = 760.f * Scale;
+	const float X = (Width - PanelW) * 0.5f;
+	float Y = Base + 24.f * Scale;
+	DrawPanel(X, Y, PanelW, (70.f + Standings.Num() * 40.f) * Scale, Scale, 0.72f);
+	Y += 18.f * Scale;
+	DrawLabel(TEXT("TIME"), X + PanelW - 300.f * Scale, Y, 1.f * Scale, Faint, 1.f);
+	DrawLabel(TEXT("BEST LAP"), X + PanelW - 160.f * Scale, Y, 1.f * Scale, Faint, 1.f);
+	DrawLabel(TEXT("WRECKED"), X + PanelW - 32.f * Scale, Y, 1.f * Scale, Faint, 1.f);
+	Y += 34.f * Scale;
 	for (int32 Index = 0; Index < Standings.Num(); ++Index)
 	{
 		const ABoatRacePlayerState* Player = Standings[Index].Player;
-		const float RowX = PanelX + 46.f * Scale;
-		DrawRect(BoatTrack::GetPlayerColor(Player->SlotIndex), RowX, Y + 8.f * Scale, 20.f * Scale, 20.f * Scale);
-		DrawLabel(FString::Printf(TEXT("%s   %s"), *Ordinal(Index + 1), *Player->GetPlayerName()),
-			RowX + 34.f * Scale, Y, 1.6f * Scale, Index == 0 ? Accent : Ink);
-
-		DrawLabel(Player->bFinished ? FormatTime(Player->FinishTime) : FString(TEXT("DNF")),
-			PanelX + PanelWidth - 300.f * Scale, Y, 1.4f * Scale, Ink, 1.f);
-		DrawLabel(Player->BestLapTime > 0.f ? FormatTime(Player->BestLapTime) : FString(TEXT("--")),
-			PanelX + PanelWidth - 170.f * Scale, Y, 1.4f * Scale, Dim, 1.f);
-		DrawLabel(FString::Printf(TEXT("%d"), Player->Hits),
-			PanelX + PanelWidth - 50.f * Scale, Y, 1.4f * Scale, Dim, 1.f);
-		Y += 56.f * Scale;
+		DrawRect(BoatTrack::GetPlayerColor(Player->SlotIndex), X + 32.f * Scale, Y + 5.f * Scale, 6.f * Scale, 20.f * Scale);
+		DrawLabel(FString::Printf(TEXT("%s   %s"), *Ordinal(Index + 1), *Player->GetPlayerName()), X + 50.f * Scale, Y, 1.3f * Scale,
+			Index == 0 ? Accent : Ink);
+		DrawLabel(Player->bFinished ? FormatTime(Player->FinishTime) : FString(TEXT("DNF")), X + PanelW - 300.f * Scale, Y, 1.3f * Scale, Ink, 1.f);
+		DrawLabel(Player->BestLapTime > 0.f ? FormatTime(Player->BestLapTime) : FString(TEXT("--")), X + PanelW - 160.f * Scale, Y, 1.3f * Scale, Dim, 1.f);
+		DrawLabel(FString::FromInt(Player->Hits), X + PanelW - 32.f * Scale, Y, 1.3f * Scale, Dim, 1.f);
+		Y += 40.f * Scale;
 	}
 
-	Y += 24.f * Scale;
 	const int32 SecondsLeft = FMath::Max(FMath::CeilToInt(RaceState->StateEndTime - RaceState->GetServerNow()), 0);
 	const APlayerController* Controller = GetOwningPlayerController();
 	const bool bHost = Controller != nullptr && Controller->HasAuthority();
 	DrawLabel(bHost
-		? FString::Printf(TEXT("ENTER  race again        back to lobby in %d s"), SecondsLeft)
-		: FString::Printf(TEXT("The host can start another race.   Back to lobby in %d s"), SecondsLeft),
-		CentreX, Y, 1.3f * Scale, Dim, 0.5f);
+		? FString::Printf(TEXT("ENTER race again      ESC menu      back to the lobby in %d s"), SecondsLeft)
+		: FString::Printf(TEXT("The host can start another race      back to the lobby in %d s"), SecondsLeft),
+		Width * 0.5f, Y + 30.f * Scale, 1.1f * Scale, Dim, 0.5f);
 }
 
 void ABoatRaceHUD::DrawNameTags(float Scale)
@@ -1103,6 +1146,9 @@ void ABoatRaceHUD::DrawNameTags(float Scale)
 	}
 
 	const APawn* MyBoat = Controller->GetPawn();
+	const FVector Me = MyBoat ? MyBoat->GetActorLocation() : FVector::ZeroVector;
+	// Tags fade with distance and step up out of each other's way.
+	TArray<FBox2D> Placed;
 	for (APlayerState* Player : RaceState->PlayerArray)
 	{
 		const ABoatRacePlayerState* RacePlayer = Cast<ABoatRacePlayerState>(Player);
@@ -1111,20 +1157,39 @@ void ABoatRaceHUD::DrawNameTags(float Scale)
 		{
 			continue;
 		}
-
+		const float Distance = static_cast<float>(FVector::Dist(Me, Boat->GetActorLocation())) / 100.f;
+		const float Fade = 1.f - FMath::Clamp((Distance - 250.f) / 350.f, 0.f, 1.f);
+		if (Fade <= 0.02f)
+		{
+			continue;
+		}
 		const FVector Screen = Project(Boat->GetActorLocation() + FVector(0.f, 0.f, 420.f));
 		if (Screen.Z <= 0.f)
 		{
 			continue; // Behind the camera.
 		}
-
 		FLinearColor Color = BoatTrack::GetPlayerColor(RacePlayer->SlotIndex);
 		FString Tag = RacePlayer->GetPlayerName();
 		if (Boat->IsWrecked())
 		{
-			Tag += TEXT("  [wrecked]");
+			Tag += TEXT("  wrecked");
 			Color = Bad;
 		}
-		DrawLabel(Tag, static_cast<float>(Screen.X), static_cast<float>(Screen.Y), 1.05f * Scale, Color, 0.5f);
+		Color = FMath::Lerp(Color, FLinearColor::White, 0.35f);
+		Color.A = Fade;
+		const float Size = FMath::Lerp(0.9f, 1.15f, Fade) * Scale;
+		const FVector2D Extent = MeasureLabel(Tag, Size, true);
+		FBox2D Box(FVector2D(Screen.X - Extent.X * 0.5f, Screen.Y), FVector2D(Screen.X + Extent.X * 0.5f, Screen.Y + Extent.Y));
+		for (int32 Tries = 0; Tries < 4; ++Tries)
+		{
+			const bool bHit = Placed.ContainsByPredicate([&Box](const FBox2D& Other) { return Other.Intersect(Box); });
+			if (!bHit)
+			{
+				break;
+			}
+			Box = Box.ShiftBy(FVector2D(0.f, -(Extent.Y + 4.f)));
+		}
+		Placed.Add(Box);
+		DrawLabel(Tag, static_cast<float>(Screen.X), static_cast<float>(Box.Min.Y), Size, Color, 0.5f, true);
 	}
 }

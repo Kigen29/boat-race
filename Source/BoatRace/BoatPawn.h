@@ -44,6 +44,10 @@ struct FBoatNetState
 	/** Bumped every time the server repositions the boat. */
 	UPROPERTY()
 	uint8 TeleportCounter = 0;
+
+	/** Boost firing, so everyone sees the extra spray and hears the engine. */
+	UPROPERTY()
+	bool bBoosting = false;
 };
 
 /**
@@ -116,6 +120,13 @@ public:
 	float GetAirborneFraction() const { return 1.f - FMath::Clamp(LastSubmersion * BuoyancyMultiplier, 0.f, 1.f); }
 	float GetTimeSinceHit() const;
 	float GetThrottleInput() const { return InputThrottle; }
+
+	/** 0..1 of the boost tank, and whether it is firing now. */
+	float GetBoost() const { return Boost; }
+	bool IsBoosting() const { return bBoostActive; }
+
+	/** For a computer driver: fire the boost if there is enough in the tank. */
+	void SetDriverBoost(bool bWant) { bWantBoost = bWant; }
 
 	/** Server time at which the server will revive this boat. */
 	float ReviveAtServerTime = 0.f;
@@ -201,6 +212,22 @@ public:
 	 *  ventilates at rest and the boat will not pull away. */
 	UPROPERTY(Config)
 	float PropellerDepth = 40.f;
+
+	// ---- Boost -----------------------------------------------------------
+	/** Thrust while boosting, as a multiple of normal. Top speed rises by its square root. */
+	UPROPERTY(Config)
+	float BoostThrust = 1.7f;
+
+	/** Seconds a full tank lasts. */
+	UPROPERTY(Config)
+	float BoostSeconds = 2.6f;
+
+	/** Tank refilled per second of racing, and per second in the air off a ramp. */
+	UPROPERTY(Config)
+	float BoostTrickle = 0.035f;
+
+	UPROPERTY(Config)
+	float BoostPerAirSecond = 0.45f;
 
 	// ---- Combat ----------------------------------------------------------
 	UPROPERTY(Config)
@@ -432,6 +459,11 @@ private:
 	TObjectPtr<UAudioComponent> WaterAudio;
 
 	float SprayAccumulator = 0.f;
+	float Boost = 0.3f;
+	bool bBoostActive = false;
+	bool bWantBoost = false;
+	bool bLookBack = false;
+	void Rumble(float Intensity, float Seconds);
 	float SmokeAccumulator = 0.f;
 	float EngineRevs = 0.f;
 	float AirTime = 0.f;

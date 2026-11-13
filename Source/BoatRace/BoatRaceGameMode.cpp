@@ -66,9 +66,13 @@ void ABoatRaceGameMode::BeginPlay()
 
 	FString Choice = Weather;
 	FParse::Value(FCommandLine::Get(), TEXT("Weather="), Choice);
+	// Test hooks: -Laps=N, and -AutoRace=S starts a race S seconds in.
+	FParse::Value(FCommandLine::Get(), TEXT("Laps="), TotalLaps);
+	FParse::Value(FCommandLine::Get(), TEXT("AutoRace="), AutoRaceAfter);
 	if (ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>())
 	{
 		RaceState->SetWeather(RaceWeather::Parse(Choice));
+		RaceState->TotalLaps = FMath::Clamp(TotalLaps, 1, 9);
 		UE_LOG(LogBoatRace, Log, TEXT("Weather: %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
 	}
 }
@@ -89,13 +93,36 @@ void ABoatRaceGameMode::RequestWeatherChange(APlayerController* Requester, int32
 	UE_LOG(LogBoatRace, Log, TEXT("Weather changed to %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
 }
 
-void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
+void ABoatRaceGameMode::RequestRaceOption(APlayerController* Requester, int32 Option, int32 Step)
 {
-	RemoveRivals(0);
-	if (!bFillWithRivals)
+	ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>();
+	const bool bHost = Requester != nullptr && (Requester->IsLocalController() || GetNetMode() == NM_DedicatedServer);
+	if (RaceState == nullptr || !bHost || RaceState->RaceState == ERaceState::Countdown || RaceState->RaceState == ERaceState::Racing)
 	{
 		return;
 	}
+	if (Option == 0)
+	{
+		TotalLaps = FMath::Clamp(TotalLaps + Step, 1, 9);
+		RaceState->TotalLaps = TotalLaps;
+	}
+	else
+	{
+		RaceState->RivalLevel = static_cast<uint8>(FMath::Clamp(static_cast<int32>(RaceState->RivalLevel) + Step, 0, 3));
+	}
+}
+
+void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
+{
+	RemoveRivals(0);
+	// The host's choice: none, or easy / normal / hard around RivalSkill.
+	const int32 Level = RaceState ? RaceState->RivalLevel : 2;
+	if (!bFillWithRivals || Level == 0)
+	{
+		return;
+	}
+	static const float LevelSkill[] = { 0.f, 0.72f, 0.0f, 1.0f };
+	const float BaseSkill = Level == 2 ? RivalSkill : LevelSkill[Level];
 	static const TCHAR* const Names[] = { TEXT("Kestrel"), TEXT("Marlin"), TEXT("Barracuda"), TEXT("Osprey") };
 	UWorld* World = GetWorld();
 	for (int32 Attempt = 0; Attempt < BoatTrack::MaxPlayers; ++Attempt)
@@ -122,7 +149,7 @@ void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
 		Racer->SetPlayerName(Names[Slot % UE_ARRAY_COUNT(Names)]);
 		Racer->ResetRace();
 		// Spread the field: one a touch quicker, one a touch slower.
-		Rival->Skill = FMath::Clamp(RivalSkill + (Slot - 1.5f) * 0.03f, 0.5f, 1.f);
+		Rival->Skill = FMath::Clamp(BaseSkill + (Slot - 1.5f) * 0.03f, 0.5f, 1.f);
 		Rival->LaneOffset = (Slot % 2 ? 1.f : -1.f) * (6.f + 4.f * (Slot / 2));
 		RestartPlayerAtTransform(Rival, BoatTrack::GetGridTransform(Slot));
 		Rivals.Add(Rival);
@@ -206,6 +233,12 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 	if (RaceState == nullptr)
 	{
 		return;
+	}
+
+	if (AutoRaceAfter > 0.f && RaceState->RaceState == ERaceState::Lobby && GetWorld()->GetTimeSeconds() > AutoRaceAfter)
+	{
+		AutoRaceAfter = 0.f;
+		StartCountdown(RaceState);
 	}
 
 	// Wrecked boats are rebuilt in every phase, so nobody is left stranded
@@ -420,6 +453,8 @@ void ABoatRaceGameMode::UpdateRacing(ABoatRaceGameState* RaceState)
 		}
 
 		RacePlayer->GatesPassed++;
+		UE_LOG(LogBoatRace, Log, TEXT("%s passed gate %d (lap %d)."), *RacePlayer->GetPlayerName(), RacePlayer->NextGate + 1,
+			FMath::Max(RacePlayer->LapsCompleted + 1, 1));
 		RacePlayer->NextGate = (RacePlayer->NextGate + 1) % Gates.Num();
 	}
 

@@ -46,6 +46,9 @@ public:
 	/** Called by ARaceEnvironment once the weather is decided. */
 	void SetWaterTint(const FLinearColor& Tint);
 
+	/** The colour the water reflects towards the horizon. */
+	void SetSkyTint(const FLinearColor& Sky);
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Water")
 	TObjectPtr<UProceduralMeshComponent> NearWater;

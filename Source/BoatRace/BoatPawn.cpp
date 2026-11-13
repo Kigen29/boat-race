@@ -3,6 +3,7 @@
 #include "BayTerrain.h"
 #include "BoatArt.h"
 #include "BoatAudio.h"
+#include "BoatPrefs.h"
 #include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
@@ -307,6 +308,25 @@ void ABoatPawn::Tick(float DeltaSeconds)
 	if (IsLocallyControlled())
 	{
 		ReadInput(DeltaSeconds);
+		// The boost tank: fills slowly while racing and quickly in the air off
+		// a ramp, so jumps are worth taking; empties while it fires.
+		const ABoatRaceGameState* BoostState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+		const bool bRacing = BoostState == nullptr || BoostState->RaceState != ERaceState::Countdown;
+		const bool bWasBoosting = bBoostActive;
+		bBoostActive = bRacing && CanDrive() && bWantBoost && InputThrottle > 0.f && (bBoostActive ? Boost > 0.f : Boost > 0.15f);
+		if (bBoostActive)
+		{
+			Boost = FMath::Max(Boost - DeltaSeconds / FMath::Max(BoostSeconds, 0.2f), 0.f);
+		}
+		else if (bRacing)
+		{
+			Boost = FMath::Min(Boost + DeltaSeconds * (BoostTrickle + (AirTime > 0.2f ? BoostPerAirSecond : 0.f)), 1.f);
+		}
+		if (bBoostActive && !bWasBoosting)
+		{
+			BoatAudio::PlayAt(this, EBoatSound::Torpedo, GetActorLocation(), 0.8f, 0.7f);
+			Rumble(0.5f, 0.35f);
+		}
 		SimulatePhysics(DeltaSeconds, WaveTime);
 		SendMoveToServer(DeltaSeconds);
 	}
@@ -378,7 +398,7 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 
 	// -PhotoTour drives the player's boat at the next gate, so the screenshots
 	// show the boat under way with its wake and spray.
-	static const bool bAutopilot = FParse::Param(FCommandLine::Get(), TEXT("PhotoTour"));
+	static const bool bAutopilot = FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")) || FParse::Param(FCommandLine::Get(), TEXT("Autopilot"));
 	const ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
 	if (bAutopilot && CanDrive() && Racer != nullptr && BoatTrack::GetGates().IsValidIndex(Racer->NextGate))
 	{
@@ -387,6 +407,23 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 			FMath::RadiansToDegrees(FMath::Atan2(ToGate.Y, ToGate.X)));
 		Throttle = 0.85f;
 		Steer = FMath::Clamp(Error / 30.f, -1.f, 1.f);
+	}
+
+	// Boost: hold SHIFT or the right bumper.
+	bWantBoost = PlayerController->IsInputKeyDown(EKeys::LeftShift) || PlayerController->IsInputKeyDown(EKeys::RightShift)
+		|| PlayerController->IsInputKeyDown(EKeys::Gamepad_RightShoulder);
+	// Camera: C cycles the views, B (or the left bumper) looks behind.
+	if (PlayerController->WasInputKeyJustPressed(EKeys::C) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_RightThumbstick))
+	{
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+		{
+			Prefs->CycleCamera(1);
+		}
+	}
+	bLookBack = PlayerController->IsInputKeyDown(EKeys::B) || PlayerController->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);
+	if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+	{
+		Steer *= Prefs->SteeringSensitivity;
 	}
 
 	InputThrottle = FMath::Clamp(Throttle, -1.f, 1.f);
@@ -584,7 +621,11 @@ void ABoatPawn::ApplyEngineAndRudder(float DeltaSeconds)
 
 	if (InputThrottle != 0.f && PropBite > 0.f)
 	{
-		const float Power = (InputThrottle >= 0.f) ? InputThrottle : InputThrottle * ReverseFraction;
+		float Power = (InputThrottle >= 0.f) ? InputThrottle : InputThrottle * ReverseFraction;
+		if (bBoostActive && InputThrottle > 0.f)
+		{
+			Power *= BoostThrust;
+		}
 		const FVector Thrust = GetActorForwardVector() * (Power * ThrustAcceleration * HullMassKg * PropBite);
 		// At the transom but level with the centre of mass, so the engine
 		// drives the boat forward without trimming it nose-down.
@@ -724,6 +765,7 @@ void ABoatPawn::SendMoveToServer(float DeltaSeconds)
 	Move.Steer = InputSteer;
 	Move.Throttle = InputThrottle;
 	Move.TeleportCounter = LocalTeleportSeq;
+	Move.bBoosting = bBoostActive;
 
 	if (HasAuthority())
 	{
@@ -740,6 +782,7 @@ void ABoatPawn::SendMoveToServer(float DeltaSeconds)
 
 void ABoatPawn::ServerSendMove_Implementation(FBoatNetState Move)
 {
+	// (bBoosting is cosmetic for everyone else; the owner applies the thrust.)
 	// Ignore anything sent before the client heard about the latest teleport,
 	// otherwise a boat snaps back to where it was when it was moved.
 	if (Move.TeleportCounter != NetState.TeleportCounter)
@@ -923,6 +966,7 @@ void ABoatPawn::ClientHitFeedback_Implementation()
 	const UWorld* World = GetWorld();
 	LastHitWallClock = World ? static_cast<float>(World->GetTimeSeconds()) : 0.f;
 	CameraShake = FMath::Max(CameraShake, 0.85f);
+	Rumble(0.9f, 0.5f);
 }
 
 float ABoatPawn::GetTimeSinceHit() const
@@ -941,6 +985,7 @@ void ABoatPawn::Revive(float InvulnerableSeconds)
 
 	Health = MaxHealth;
 	bWrecked = false;
+	Boost = FMath::Max(Boost, 0.3f);
 
 	const UWorld* World = GetWorld();
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
@@ -1051,8 +1096,34 @@ void ABoatPawn::UpdateCosmetics(float DeltaSeconds)
 	{
 		// A touch more field of view with speed, and the camera pulls back.
 		const float SpeedFraction = FMath::Clamp(FMath::Abs(GetForwardSpeed()) / ReferenceTopSpeed, 0.f, 1.f);
-		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, 85.f + 13.f * SpeedFraction, DeltaSeconds, 2.f));
-		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, 1150.f + 250.f * SpeedFraction, DeltaSeconds, 2.f);
+		const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+		const EBoatCamera View = Prefs ? Prefs->GetCamera() : EBoatCamera::Chase;
+		static const bool bTour = FParse::Param(FCommandLine::Get(), TEXT("PhotoTour"));
+		const float Boosting = bBoostActive ? 1.f : 0.f;
+		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, 85.f + 13.f * SpeedFraction + 9.f * Boosting, DeltaSeconds, 2.5f));
+		float Arm = 1150.f + 250.f * SpeedFraction + 200.f * Boosting;
+		FVector Mount(0.f, 0.f, 230.f);
+		float Pitch = -9.f;
+		if (View == EBoatCamera::Far)
+		{
+			Arm = 1900.f + 300.f * SpeedFraction;
+			Mount.Z = 420.f;
+			Pitch = -13.f;
+		}
+		else if (View == EBoatCamera::Bumper)
+		{
+			// Low on the foredeck, looking over the bow.
+			Arm = 0.f;
+			Mount = FVector(120.f, 0.f, 150.f);
+			Pitch = -3.f;
+		}
+		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, Arm, DeltaSeconds, 3.f);
+		SpringArm->SetRelativeLocation(FMath::VInterpTo(SpringArm->GetRelativeLocation(), Mount, DeltaSeconds, 4.f));
+		if (!bTour)
+		{
+			SpringArm->SetRelativeRotation(FRotator(Pitch, bLookBack ? 180.f : 0.f, 0.f));
+			SpringArm->bEnableCameraRotationLag = !bLookBack && View != EBoatCamera::Bumper;
+		}
 
 		// A jolt for crashes, landings and nearby blasts, plus a faint buzz at speed.
 		CameraShake = FMath::Max(CameraShake - DeltaSeconds * 1.8f, 0.f);
@@ -1154,6 +1225,17 @@ void ABoatPawn::TryLoadCustomMesh()
 // ---------------------------------------------------------------------------
 // Computer drivers
 // ---------------------------------------------------------------------------
+void ABoatPawn::Rumble(float Intensity, float Seconds)
+{
+	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+	if (PlayerController == nullptr || !PlayerController->IsLocalController() || (Prefs && !Prefs->bRumble))
+	{
+		return;
+	}
+	PlayerController->PlayDynamicForceFeedback(FMath::Clamp(Intensity, 0.f, 1.f), Seconds, true, true, true, true);
+}
+
 void ABoatPawn::SetShowcaseCamera(bool bShowcase)
 {
 	// A three-quarter view from ahead and to the side, for the photo tour.
@@ -1250,6 +1332,7 @@ void ABoatPawn::OnHullHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
 	}
 	LastImpactTime = Now;
 	CameraShake = FMath::Max(CameraShake, FMath::Clamp(Closing / 1800.f, 0.25f, 1.f));
+	Rumble(FMath::Clamp(Closing / 1500.f, 0.3f, 1.f), 0.3f);
 	BoatAudio::PlayAt(this, EBoatSound::Crash, Hit.ImpactPoint, FMath::Clamp(Closing / 1500.f, 0.3f, 1.f), FMath::FRandRange(0.9f, 1.1f));
 	for (int32 Index = 0; Index < 6; ++Index)
 	{
@@ -1468,6 +1551,7 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 			if (IsLocallyControlled())
 			{
 				CameraShake = FMath::Max(CameraShake, FMath::Clamp(AirTime * 0.7f, 0.3f, 0.9f));
+				Rumble(FMath::Clamp(AirTime * 0.6f, 0.3f, 0.9f), 0.25f);
 			}
 		}
 		AirTime = 0.f;
@@ -1483,7 +1567,8 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 	// sheets of spray out to the sides.
 	if (bInWater && SpeedFraction > 0.12f && !bWrecked)
 	{
-		SprayAccumulator += DeltaSeconds * (3.f + 9.f * SpeedFraction);
+		const bool bShowBoost = IsLocallyControlled() ? bBoostActive : NetState.bBoosting;
+		SprayAccumulator += DeltaSeconds * (3.f + 9.f * SpeedFraction) * (bShowBoost ? 2.5f : 1.f);
 		while (SprayAccumulator > 1.f)
 		{
 			SprayAccumulator -= 1.f;
@@ -1637,7 +1722,8 @@ void ABoatPawn::UpdateAudio(float DeltaSeconds)
 	const float TargetRevs = bWrecked ? 0.f : FMath::Clamp(0.15f + 0.65f * SpeedFraction + 0.25f * FMath::Abs(Throttle) + Airborne, 0.f, 1.3f);
 	EngineRevs = FMath::FInterpTo(EngineRevs, TargetRevs, DeltaSeconds, TargetRevs > EngineRevs ? 3.f : 1.8f);
 
-	EngineAudio->SetPitchMultiplier(0.65f + 1.75f * EngineRevs);
+	const bool bBoostSound = IsLocallyControlled() ? bBoostActive : NetState.bBoosting;
+	EngineAudio->SetPitchMultiplier(0.65f + 1.75f * EngineRevs + (bBoostSound ? 0.3f : 0.f));
 	const float Loudness = (bWrecked ? 0.f : 0.3f + 0.55f * FMath::Abs(Throttle) + 0.25f * SpeedFraction) * (IsLocallyControlled() ? 0.75f : 1.f);
 	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness * Audio->EffectsVolume, 0.001f));
 	if (WaterAudio != nullptr)

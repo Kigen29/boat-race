@@ -82,6 +82,17 @@ void AWaterSurface::SetWaterTint(const FLinearColor& Tint)
 	}
 }
 
+void AWaterSurface::SetSkyTint(const FLinearColor& Sky)
+{
+	for (UMaterialInstanceDynamic* Material : { NearMaterial.Get(), FarMaterial.Get() })
+	{
+		if (Material != nullptr)
+		{
+			Material->SetVectorParameterValue(TEXT("Sky"), Sky);
+		}
+	}
+}
+
 void AWaterSurface::BuildGrid()
 {
 	const int32 VertsPerSide = GridCells + 1;

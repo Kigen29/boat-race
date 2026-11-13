@@ -22,6 +22,12 @@ enum class EMenuAction : uint8
 	JoinFound,
 	JoinAddress,
 	Weather,
+	Laps,
+	Rivals,
+	Camera,
+	Steering,
+	Graphics,
+	Rumble,
 	Music,
 	MusicVolume,
 	EffectsVolume,
@@ -90,6 +96,9 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestRestart();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRaceOption(int32 Option, int32 Step);
 
 private:
 	void HandleAddressTyping();

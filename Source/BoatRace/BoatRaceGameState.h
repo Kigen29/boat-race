@@ -70,6 +70,10 @@ public:
 	UPROPERTY(Replicated)
 	int32 TotalLaps = 2;
 
+	/** 0 no rivals, 1 easy, 2 normal, 3 hard. Shown in everyone's lobby. */
+	UPROPERTY(Replicated)
+	uint8 RivalLevel = 2;
+
 	/** ERaceWeather as a byte; the host picks it in the lobby. */
 	UPROPERTY(Replicated)
 	uint8 WeatherIndex = 0;

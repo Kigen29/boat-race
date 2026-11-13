@@ -517,7 +517,10 @@ void ABayTerrain::PlaceBuildings()
 	const FBoatGate& Start = Gates[0];
 	const FVector2D Outward(Start.Forward.Y, -Start.Forward.X);
 	const FVector2D StandSpot = FindBank(Start, 1.0, 1.2, 60.0) + Outward * 14.0;
-	PlaceModel(TEXT("Grandstand"), 12.3f, Ground(StandSpot), YawOf(-Outward));
+	if (UStaticMeshComponent* Stand = PlaceModel(TEXT("Grandstand"), 12.3f, Ground(StandSpot), YawOf(-Outward)))
+	{
+		AddCrowd(Stand);
+	}
 	for (int32 Index = -3; Index <= 3; ++Index)
 	{
 		const FVector2D Spot = StandSpot + Outward * 18.0 + Start.Forward * (Index * 9.0);
@@ -583,6 +586,68 @@ void ABayTerrain::PlaceBuildings()
 		}
 	}
 	RepaintAll();
+}
+
+void ABayTerrain::AddCrowd(UStaticMeshComponent* Stand)
+{
+	// Spectators in the grandstand: three builds of person, six shirt
+	// colours, about three seats in four taken. One instanced component per
+	// combination keeps it to eighteen draw calls for a couple of hundred people.
+	static const TCHAR* const Builds[] = { TEXT("SpectatorA"), TEXT("SpectatorB"), TEXT("SpectatorC") };
+	const FLinearColor Shirts[] =
+	{
+		FLinearColor::FromSRGBColor(FColor(229, 57, 53)), FLinearColor::FromSRGBColor(FColor(30, 136, 229)),
+		FLinearColor::FromSRGBColor(FColor(253, 216, 53)), FLinearColor::FromSRGBColor(FColor(67, 160, 71)),
+		FLinearColor::FromSRGBColor(FColor(245, 245, 245)), FLinearColor::FromSRGBColor(FColor(255, 112, 67)),
+	};
+	TArray<UInstancedStaticMeshComponent*> Groups;
+	Groups.SetNumZeroed(UE_ARRAY_COUNT(Builds) * UE_ARRAY_COUNT(Shirts));
+	const FTransform StandTransform = Stand->GetComponentTransform();
+	int32 Seated = 0;
+	for (int32 Tier = 0; Tier < 7; ++Tier)
+	{
+		for (int32 Seat = 0; Seat < 16; ++Seat)
+		{
+			for (const int32 Side : { -1, 1 })
+			{
+				const int64 Key = Tier * 100 + Seat * 2 + (Side > 0 ? 1 : 0);
+				if (Hash2(Key, 7, 211) > 0.74)
+				{
+					continue;
+				}
+				const int32 Build = static_cast<int32>(Hash2(Key, 9, 223) * 2.999);
+				const int32 Shirt = static_cast<int32>(Hash2(Key, 11, 227) * 5.999);
+				const int32 Group = Build * UE_ARRAY_COUNT(Shirts) + Shirt;
+				if (Groups[Group] == nullptr)
+				{
+					UStaticMesh* Mesh = BoatArt::Model(Builds[Build]);
+					if (Mesh == nullptr)
+					{
+						return;
+					}
+					UInstancedStaticMeshComponent* Instances = NewObject<UInstancedStaticMeshComponent>(this);
+					Instances->SetStaticMesh(Mesh);
+					Instances->SetupAttachment(Land);
+					Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+					Instances->SetCastShadow(true);
+					Instances->SetCullDistances(0, 60000);
+					Instances->RegisterComponent();
+					BoatArt::FLook Look;
+					Look.Paint = Shirts[Shirt];
+					BoatArt::Paint(Instances, Look);
+					Groups[Group] = Instances;
+				}
+				// Seat positions in the grandstand model, in its own metres.
+				const FVector Local((-1.1 * Tier + 0.1) * 100.0, (-18.75 + Seat * 2.5 + Side * 0.55) * 100.0, (1.245 + 0.75 * Tier) * 100.0);
+				const FVector World = StandTransform.TransformPosition(Local);
+				const float Size = BoatArt::UnitScale(Groups[Group]->GetStaticMesh(), 1.4f) * (0.92f + 0.14f * static_cast<float>(Hash2(Key, 13, 229)));
+				const FRotator Facing(0.f, static_cast<float>(StandTransform.Rotator().Yaw) + static_cast<float>(Hash2(Key, 17, 233) - 0.5) * 30.f, 0.f);
+				Groups[Group]->AddInstance(FTransform(Facing, World, FVector(Size)), true);
+				++Seated;
+			}
+		}
+	}
+	UE_LOG(LogBoatRace, Log, TEXT("%d spectators in the grandstand."), Seated);
 }
 
 void ABayTerrain::RepaintAll()

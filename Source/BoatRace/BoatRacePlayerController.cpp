@@ -3,6 +3,7 @@
 #include "BayTerrain.h"
 #include "BoatAudio.h"
 #include "BoatPawn.h"
+#include "BoatPrefs.h"
 #include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameMode.h"
@@ -233,6 +234,9 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 	const bool bHost = HasAuthority();
 	const bool bRacing = RaceState && (RaceState->RaceState == ERaceState::Racing || RaceState->RaceState == ERaceState::Countdown);
 	const FString WeatherName = RaceState ? RaceWeather::Get(RaceState->GetWeather()).Name : TEXT("Sunny");
+	static const TCHAR* const RivalNames[] = { TEXT("None"), TEXT("Easy"), TEXT("Normal"), TEXT("Hard") };
+	const FString RivalName = RivalNames[RaceState ? FMath::Clamp<int32>(RaceState->RivalLevel, 0, 3) : 2];
+	const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
 
 	auto Add = [&Items](const FString& Label, EMenuAction Action, const FString& Hint = FString(), const FString& Value = FString(),
 		bool bAdjustable = false, bool bEnabled = true, int32 Data = 0)
@@ -271,7 +275,9 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		}
 		Add(TEXT("Join by address"), EMenuAction::JoinAddress, TEXT("Type the host's IP address"));
 		Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
-		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Music and sound volume"));
+		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
+		Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
+		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
 		Add(TEXT("Controls"), EMenuAction::Controls, TEXT("Keys and gamepad"));
 		Add(TEXT("Quit game"), EMenuAction::Quit);
 		break;
@@ -282,6 +288,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		{
 			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
 			Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
+			Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
+			Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		}
 		if (bHost && bRacing)
 		{
@@ -291,13 +299,17 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		{
 			Add(TEXT("Back to last gate"), EMenuAction::ResetBoat, TEXT("Stuck? Start again from the last gate"));
 		}
-		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Music and sound volume"));
+		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
 		Add(TEXT("Controls"), EMenuAction::Controls, TEXT("Keys and gamepad"));
 		Add(GetNetMode() == NM_Standalone ? TEXT("Main menu") : (bHost ? TEXT("End race for everyone") : TEXT("Leave race")),
 			GetNetMode() == NM_Standalone ? EMenuAction::BackToMenu : EMenuAction::Leave);
 		Add(TEXT("Quit game"), EMenuAction::Quit);
 		break;
 	case EMenuScreen::Settings:
+		Add(TEXT("Camera"), EMenuAction::Camera, TEXT("C cycles it while racing"), Prefs ? UBoatPrefs::CameraName(Prefs->GetCamera()) : TEXT("Chase"), true);
+		Add(TEXT("Steering sensitivity"), EMenuAction::Steering, TEXT("Lower is gentler"), Percent(Prefs ? Prefs->SteeringSensitivity : 1.f), true);
+		Add(TEXT("Graphics quality"), EMenuAction::Graphics, TEXT("Lower runs faster on weak graphics"), UBoatPrefs::GraphicsName(Prefs ? Prefs->GraphicsQuality : -1), true);
+		Add(TEXT("Controller rumble"), EMenuAction::Rumble, TEXT("Gamepad vibration"), Prefs && !Prefs->bRumble ? TEXT("Off") : TEXT("On"), true);
 		Add(TEXT("Music"), EMenuAction::Music, TEXT("Left / right to change"), Audio && Audio->IsMusicOn() ? TEXT("On") : TEXT("Off"), true);
 		Add(TEXT("Music volume"), EMenuAction::MusicVolume, TEXT("Left / right to change"), Percent(Audio ? Audio->MusicVolume : 0.45f), true);
 		Add(TEXT("Sound effects volume"), EMenuAction::EffectsVolume, TEXT("Left / right to change"), Percent(Audio ? Audio->EffectsVolume : 1.f), true);
@@ -309,6 +321,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		{
 			{ TEXT("Throttle / reverse"), TEXT("W / S    RT / LT") },
 			{ TEXT("Steer"), TEXT("A / D    Left stick") },
+			{ TEXT("Boost"), TEXT("SHIFT    RB") },
+			{ TEXT("Camera view / look back"), TEXT("C / B    R3 / LB") },
 			{ TEXT("Torpedo"), TEXT("SPACE / Left mouse    A") },
 			{ TEXT("Mine"), TEXT("Q / Right mouse    X") },
 			{ TEXT("Back to last gate"), TEXT("R    Y") },
@@ -470,6 +484,24 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 	case EMenuAction::Weather:
 		ServerRequestWeather(Step >= 0 ? 1 : -1);
 		break;
+	case EMenuAction::Laps:
+		ServerRaceOption(0, Step >= 0 ? 1 : -1);
+		break;
+	case EMenuAction::Rivals:
+		ServerRaceOption(1, Step >= 0 ? 1 : -1);
+		break;
+	case EMenuAction::Camera:
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->CycleCamera(Step >= 0 ? 1 : -1); }
+		break;
+	case EMenuAction::Steering:
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->SetSteering(Prefs->SteeringSensitivity + 0.1f * Step); }
+		break;
+	case EMenuAction::Graphics:
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->SetGraphics(((Prefs->GraphicsQuality + 1 + Step) % 5 + 5) % 5 - 1); }
+		break;
+	case EMenuAction::Rumble:
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->bRumble = !Prefs->bRumble; Prefs->SaveConfig(); }
+		break;
 	case EMenuAction::Music:
 		if (Audio) { Audio->ToggleMusic(); }
 		break;
@@ -609,6 +641,15 @@ void ABoatRacePlayerController::ServerRequestRestart_Implementation()
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
 		RaceMode->RequestStartRace(this, true);
+	}
+}
+
+void ABoatRacePlayerController::ServerRaceOption_Implementation(int32 Option, int32 Step)
+{
+	UWorld* World = GetWorld();
+	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
+	{
+		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 1), FMath::Clamp(Step, -1, 1));
 	}
 }
 

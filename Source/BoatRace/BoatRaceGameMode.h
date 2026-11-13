@@ -31,6 +31,9 @@ public:
 	/** From the host's TAB key in the lobby: the next weather (or the one before). */
 	void RequestWeatherChange(APlayerController* Requester, int32 Step);
 
+	/** Host's lap count (Step = +/-1) and rival level, between races only. */
+	void RequestRaceOption(APlayerController* Requester, int32 Option, int32 Step);
+
 	/** Puts a boat back just past the last gate it passed (a rival that is stuck). */
 	void ResetBoatToLastGate(ABoatPawn* Boat);
 
@@ -89,5 +92,6 @@ private:
 	void EndRace(ABoatRaceGameState* RaceState);
 
 	int32 FinishedCount = 0;
+	float AutoRaceAfter = 0.f;
 	float FirstFinishServerTime = -1.f;
 };

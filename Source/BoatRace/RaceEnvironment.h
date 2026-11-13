@@ -135,6 +135,7 @@ private:
 	void UpdateRopes(float Seconds);
 	void UpdateWhirlpools(float Seconds);
 	void UpdatePrecipitation(float Seconds, float DeltaSeconds);
+	void UpdateRipples(float Seconds);
 	void UpdateSky(float Seconds, float DeltaSeconds);
 	void UpdateStartLights();
 	void HighlightNextGate(float Seconds);
@@ -224,6 +225,11 @@ private:
 	FVector PrecipitationDrift = FVector::ZeroVector;
 	FVector CloudDrift = FVector::ZeroVector;
 	FVector2D SmoothedWind = FVector2D::ZeroVector;
+
+	/** Rings spreading where raindrops hit the water. */
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> Ripples;
+	TArray<FTransform> RippleTransforms;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> CloudDeck;

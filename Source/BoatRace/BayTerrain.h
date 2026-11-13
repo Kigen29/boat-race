@@ -74,6 +74,7 @@ private:
 	UStaticMeshComponent* PlaceModel(const TCHAR* Name, float HeightMetres, const FVector& LocationUU, float Yaw,
 		float SizeMultiplier = 1.f, bool bCollision = false);
 	void RepaintAll();
+	void AddCrowd(UStaticMeshComponent* Stand);
 
 	/** Per section: the vertices' XY in metres, kept for recolouring. */
 	TArray<TArray<FVector2D>> SectionPoints;

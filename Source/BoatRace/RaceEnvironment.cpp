@@ -286,6 +286,16 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 	if (Water != nullptr)
 	{
 		Water->SetWaterTint(Look.WaterTint);
+		Water->SetSkyTint(Look.bNight ? Look.FogColor * 0.6f : Look.FogColor * 1.1f);
+	}
+	if (Ripples != nullptr)
+	{
+		Ripples->SetVisibility(Look.Precipitation == EPrecipitation::Rain);
+		if (UMaterialInstanceDynamic* Foam = Cast<UMaterialInstanceDynamic>(Ripples->GetMaterial(0)))
+		{
+			Foam->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.85f, 0.9f, 0.95f) * FMath::Max(Look.FoamBrightness * 1.6f, 0.3f));
+			Foam->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
+		}
 	}
 	if (Terrain != nullptr)
 	{
@@ -418,6 +428,24 @@ void ARaceEnvironment::BuildSky()
 	}
 	PrecipitationTransforms.SetNum(Count);
 	Precipitation->SetVisibility(false);
+
+	// Raindrop rings on the water around the camera.
+	if (UStaticMesh* Ring = BoatArt::Model(TEXT("Ripple")))
+	{
+		Ripples = NewObject<UInstancedStaticMeshComponent>(this);
+		Ripples->SetStaticMesh(Ring);
+		Ripples->SetupAttachment(SceneRoot);
+		Ripples->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Ripples->SetCastShadow(false);
+		Ripples->RegisterComponent();
+		BoatArt::Paint(Ripples);
+		for (int32 Index = 0; Index < 260; ++Index)
+		{
+			Ripples->AddInstance(FTransform::Identity, true);
+		}
+		RippleTransforms.SetNum(260);
+		Ripples->SetVisibility(false);
+	}
 
 	// A lightning bolt: a jagged chain of glowing rods, rebuilt for each strike.
 	UStaticMesh* Cube = Shape(TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -1068,6 +1096,7 @@ void ARaceEnvironment::Tick(float DeltaSeconds)
 	UpdateStartLights();
 	UpdateSky(Seconds, DeltaSeconds);
 	UpdatePrecipitation(Seconds, DeltaSeconds);
+	UpdateRipples(Seconds);
 	UpdateTraffic(Seconds, DeltaSeconds);
 
 	// Barges run on the shared clock, so they are in the same place on every
@@ -1412,4 +1441,35 @@ void ARaceEnvironment::UpdateTraffic(float Seconds, float DeltaSeconds)
 		Boat.Wake.Update(FVector(Position.X, Position.Y, Surface) - Forward * (Boat.Length * 0.45f), Forward, Boat.Speed,
 			true, Seconds, Now, Foam, Boat.Length / 750.f);
 	}
+}
+
+void ARaceEnvironment::UpdateRipples(float Seconds)
+{
+	if (Ripples == nullptr || !Ripples->IsVisible())
+	{
+		return;
+	}
+	FVector Camera = FVector::ZeroVector;
+	if (const APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+	{
+		FRotator Ignored;
+		Controller->GetPlayerViewPoint(Camera, Ignored);
+	}
+	// Each ring grows for half a second and then pops up somewhere else
+	// nearby, so the surface looks pelted everywhere you look.
+	// The ring model is a metre in radius; scale it to the ring's size in metres.
+	const float PerMetre = 100.f / FMath::Max(static_cast<float>(Ripples->GetStaticMesh()->GetBounds().BoxExtent.X), 1.f);
+	for (int32 Index = 0; Index < RippleTransforms.Num(); ++Index)
+	{
+		const float Cycle = Seconds * 1.8f + Index * 0.6180339f;
+		const int32 Round = FMath::FloorToInt(Cycle);
+		const float Age = Cycle - Round;
+		const FVector2D Offset(Wobble(Index * 31 + Round, 1) * 2600.f, Wobble(Index * 17 + Round, 2) * 2600.f + 900.f);
+		const FVector2D Point(Camera.X + Offset.X, Camera.Y + Offset.Y);
+		const float Size = 0.08f + 0.5f * Age;
+		const float Surface = OceanWaves::GetHeight(Point, Seconds);
+		RippleTransforms[Index] = FTransform(FRotator::ZeroRotator, FVector(Point.X, Point.Y, Surface + 4.f),
+			FVector(Size * PerMetre));
+	}
+	Ripples->BatchUpdateInstancesTransforms(0, RippleTransforms, true, true, true);
 }

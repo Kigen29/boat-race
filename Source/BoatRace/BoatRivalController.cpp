@@ -145,6 +145,7 @@ void ABoatRivalController::Tick(float DeltaSeconds)
 	}
 	if (RaceState->RaceState != ERaceState::Racing || Racer->bFinished || Boat->IsWrecked())
 	{
+		Boat->SetDriverBoost(false);
 		Boat->SetDriverInput(0.f, 0.f);
 		StuckTime = 0.f;
 		return;
@@ -195,6 +196,9 @@ void ABoatRivalController::Tick(float DeltaSeconds)
 		StuckTime = 0.f;
 	}
 
+	// Boost on the straights when the tank is worth spending; better
+	// rivals are greedier with it.
+	Boat->SetDriverBoost(Throttle > 0.8f && FMath::Abs(Error) < 7.f && Boat->GetBoost() > (1.15f - Skill * 0.6f));
 	Boat->SetDriverInput(Throttle, Steer);
 	UseWeapons(Boat, Now);
 }

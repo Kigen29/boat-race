@@ -10,6 +10,8 @@
 #include "GameFramework/PlayerState.h"
 #include "HAL/PlatformProcess.h"
 #include "IPAddress.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "SocketSubsystem.h"
 #include "Sockets.h"
 
@@ -56,6 +58,19 @@ void ULanDiscovery::Deinitialize()
 
 bool ULanDiscovery::Tick(float DeltaTime)
 {
+	// Test hook: -ExitAfter=S quits cleanly S seconds after starting.
+	static float ExitAfter = -1.f;
+	static const double Started = FPlatformTime::Seconds();
+	if (ExitAfter < 0.f && !FParse::Value(FCommandLine::Get(), TEXT("ExitAfter="), ExitAfter))
+	{
+		ExitAfter = 0.f;
+	}
+	if (ExitAfter > 0.f && FPlatformTime::Seconds() - Started > ExitAfter)
+	{
+		UE_LOG(LogBoatRace, Log, TEXT("ExitAfter reached; quitting."));
+		ExitAfter = 0.f;
+		FPlatformMisc::RequestExit(false);
+	}
 	const UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
 	if (World == nullptr)
 	{
