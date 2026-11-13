@@ -27,6 +27,9 @@ public:
 	virtual void BeginPlay() override;
 	virtual void DrawHUD() override;
 
+	/** Which line of the open menu is under a screen point, or -1. */
+	int32 HitTestMenu(const FVector2D& Point) const;
+
 	/** Set false in DefaultGame.ini to hide the circuit map. */
 	UPROPERTY(Config)
 	bool bShowMiniMap = true;
@@ -57,7 +60,15 @@ private:
 	void DrawStatus(const ABoatPawn* Boat, float Width, float Height, float Scale);
 	void DrawMiniMap(const TArray<FStanding>& Standings, const ABoatRacePlayerState* Me, float Width, float Height, float Scale);
 	void DrawKillFeed(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale);
-	void DrawGateCompass(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale);
+	void DrawGateMarker(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Height, float Scale);
+	void DrawHeadingStrip(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale);
+	void DrawMenuScreen(float Width, float Height, float Scale);
+	void DrawAddressEntry(float Width, float Height, float Scale);
+	/** A dark glass panel with a thin accent line along its top. */
+	void DrawPanel(float X, float Y, float W, float H, float Scale, float Alpha = 0.72f);
+	void DrawTriangle(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color);
+	/** Width and height of a label as DrawLabel would draw it. */
+	FVector2D MeasureLabel(const FString& Text, float Size, bool bLarge) const;
 	void DrawNameTags(float Scale);
 	void DrawDamageEdge(const ABoatPawn* Boat, float Width, float Height);
 	void DrawStartLights(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale);
@@ -76,6 +87,13 @@ private:
 	static FString FormatTime(float Seconds);
 	static FString FormatGap(float Seconds);
 	static FString Ordinal(int32 Number);
+
+	/** Roboto from the engine: a scalable font, sharp at any size. */
+	UPROPERTY()
+	TObjectPtr<UFont> RobotoFont;
+
+	/** Screen rectangles of the menu lines drawn this frame (for the mouse). */
+	TArray<FBox2D> MenuRects;
 
 	/** Optional Higgsfield art at /Game/Higgsfield/T_Title. */
 	UPROPERTY()

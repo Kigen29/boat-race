@@ -6,6 +6,7 @@
 #include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
+#include "BoatRacePlayerController.h"
 #include "BoatRacePlayerState.h"
 #include "BoatTrack.h"
 #include "OceanWaves.h"
@@ -328,6 +329,14 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 	float Steer = 0.f;
 
 	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	const ABoatRacePlayerController* MenuOwner = Cast<ABoatRacePlayerController>(PlayerController);
+	if (MenuOwner != nullptr && MenuOwner->IsMenuOpen())
+	{
+		// The keys are steering the menu, not the boat.
+		InputThrottle = 0.f;
+		InputSteer = FMath::FInterpTo(InputSteer, 0.f, DeltaSeconds, 8.f);
+		return;
+	}
 	if (PlayerController == nullptr)
 	{
 		// A computer rival has already set the controls through SetDriverInput.
@@ -1506,7 +1515,7 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 			if (SprayMaterials.IsValidIndex(Index) && SprayMaterials[Index] != nullptr)
 			{
 				SprayMaterials[Index]->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.92f, 0.96f, 1.f) * Foam);
-				SprayMaterials[Index]->SetScalarParameterValue(TEXT("Opacity"), FMath::Clamp((SpeedFraction - 0.3f) * 0.9f, 0.f, 0.4f));
+				SprayMaterials[Index]->SetScalarParameterValue(TEXT("Opacity"), FMath::Clamp((SpeedFraction - 0.3f) * 0.7f, 0.f, 0.28f));
 			}
 		}
 	}
@@ -1630,7 +1639,7 @@ void ABoatPawn::UpdateAudio(float DeltaSeconds)
 
 	EngineAudio->SetPitchMultiplier(0.65f + 1.75f * EngineRevs);
 	const float Loudness = (bWrecked ? 0.f : 0.3f + 0.55f * FMath::Abs(Throttle) + 0.25f * SpeedFraction) * (IsLocallyControlled() ? 0.75f : 1.f);
-	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness, 0.001f));
+	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness * Audio->EffectsVolume, 0.001f));
 	if (WaterAudio != nullptr)
 	{
 		WaterAudio->SetVolumeMultiplier(FMath::Max(SpeedFraction * (AirTime > 0.1f ? 0.1f : 0.9f), 0.001f));

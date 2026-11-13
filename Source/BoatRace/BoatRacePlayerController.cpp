@@ -7,6 +7,7 @@
 #include "BoatRace.h"
 #include "BoatRaceGameMode.h"
 #include "BoatRaceGameState.h"
+#include "BoatRaceHUD.h"
 #include "BoatTrack.h"
 #include "LanDiscovery.h"
 
@@ -89,15 +90,61 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	if (bTypingAddress)
 	{
 		HandleAddressTyping();
+		SyncCursor();
 		return;
 	}
 
 	if (FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")))
 	{
 		RunPhotoTour(DeltaTime);
+		return;
 	}
 
-	// TAB: the host picks the weather between races (SHIFT+TAB goes back).
+	// The title screen is always a menu; leaving it (a race starts) closes it.
+	if (IsOnMainMenu())
+	{
+		if (MenuScreen == EMenuScreen::None || MenuScreen == EMenuScreen::Pause)
+		{
+			OpenMenu(EMenuScreen::Main);
+		}
+	}
+	else if (MenuScreen == EMenuScreen::Main || (MenuParent == EMenuScreen::Main && MenuScreen != EMenuScreen::None
+		&& MenuScreen != EMenuScreen::Pause))
+	{
+		OpenMenu(EMenuScreen::None);
+	}
+
+	// ESC (or Start on a pad) opens the pause menu, or goes back a step.
+	const bool bBackPressed = WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right);
+	if (MenuScreen == EMenuScreen::None)
+	{
+		if (WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_Special_Left)
+			|| WasInputKeyJustPressed(EKeys::P))
+		{
+			OpenMenu(EMenuScreen::Pause);
+		}
+	}
+	else if (bBackPressed)
+	{
+		if (MenuScreen == EMenuScreen::Settings || MenuScreen == EMenuScreen::Controls)
+		{
+			OpenMenu(MenuParent);
+		}
+		else if (MenuScreen == EMenuScreen::Pause)
+		{
+			OpenMenu(EMenuScreen::None);
+		}
+	}
+
+	if (MenuScreen != EMenuScreen::None)
+	{
+		HandleMenuInput();
+		SyncCursor();
+		return;
+	}
+	SyncCursor();
+
+	// In a race: the quick keys still work without the menu.
 	if (WasInputKeyJustPressed(EKeys::Tab))
 	{
 		ServerRequestWeather(IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift) ? -1 : 1);
@@ -109,7 +156,6 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 			Audio->ToggleMusic();
 		}
 	}
-
 	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
 	{
 		ServerRequestStart();
@@ -118,10 +164,260 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	{
 		ServerRequestReset();
 	}
-
-	if (GetNetMode() == NM_Standalone)
+	if (GetNetMode() != NM_Standalone && WasInputKeyJustPressed(EKeys::L))
 	{
-		// Main menu: not hosting and not connected to anyone.
+		LeaveRace();
+	}
+}
+
+bool ABoatRacePlayerController::IsOnMainMenu() const
+{
+	const UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	return GetNetMode() == NM_Standalone && RaceState != nullptr && RaceState->RaceState == ERaceState::Lobby
+		&& !FParse::Param(FCommandLine::Get(), TEXT("PhotoTour"));
+}
+
+void ABoatRacePlayerController::OpenMenu(EMenuScreen Screen)
+{
+	if (Screen == EMenuScreen::Settings || Screen == EMenuScreen::Controls)
+	{
+		if (MenuScreen == EMenuScreen::Main || MenuScreen == EMenuScreen::Pause)
+		{
+			MenuParent = MenuScreen;
+		}
+	}
+	else
+	{
+		MenuParent = Screen == EMenuScreen::None ? EMenuScreen::Main : Screen;
+	}
+	if (MenuScreen != Screen)
+	{
+		MenuSelection = 0;
+		if (Screen != EMenuScreen::None)
+		{
+			BoatAudio::Play2D(this, EBoatSound::Beep, 0.25f, 1.6f);
+		}
+	}
+	MenuScreen = Screen;
+}
+
+void ABoatRacePlayerController::SyncCursor()
+{
+	// A mouse pointer whenever a menu is up, none while driving.
+	const bool bWant = IsMenuOpen();
+	if (bWant == bCursorShown)
+	{
+		return;
+	}
+	bCursorShown = bWant;
+	SetShowMouseCursor(bWant);
+	if (bWant)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
+void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
+{
+	Items.Reset();
+	const UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const UBoatAudioSubsystem* Audio = UBoatAudioSubsystem::Get(this);
+	const bool bHost = HasAuthority();
+	const bool bRacing = RaceState && (RaceState->RaceState == ERaceState::Racing || RaceState->RaceState == ERaceState::Countdown);
+	const FString WeatherName = RaceState ? RaceWeather::Get(RaceState->GetWeather()).Name : TEXT("Sunny");
+
+	auto Add = [&Items](const FString& Label, EMenuAction Action, const FString& Hint = FString(), const FString& Value = FString(),
+		bool bAdjustable = false, bool bEnabled = true, int32 Data = 0)
+	{
+		FMenuItem& Item = Items.AddDefaulted_GetRef();
+		Item.Label = Label;
+		Item.Action = Action;
+		Item.Hint = Hint;
+		Item.Value = Value;
+		Item.bAdjustable = bAdjustable;
+		Item.bEnabled = bEnabled;
+		Item.Data = Data;
+	};
+	auto Percent = [](float Value) { return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Value * 100.f)); };
+
+	switch (MenuScreen)
+	{
+	case EMenuScreen::Main:
+	{
+		Add(TEXT("Solo race"), EMenuAction::Solo, TEXT("Race three computer rivals"));
+		Add(TEXT("Host a race"), EMenuAction::Host, TEXT("Friends on your Wi-Fi can join you"));
+		const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
+		const TArray<FFoundRace> NoRaces;
+		const TArray<FFoundRace>& Races = Discovery ? Discovery->GetFoundRaces() : NoRaces;
+		for (int32 Index = 0; Index < FMath::Min(Races.Num(), BoatTrack::MaxPlayers); ++Index)
+		{
+			const FFoundRace& Race = Races[Index];
+			const bool bFull = Race.Players >= Race.MaxPlayers;
+			Add(FString::Printf(TEXT("Join %s"), *Race.Name), EMenuAction::JoinFound, TEXT("A race on your Wi-Fi"),
+				bFull ? FString(TEXT("Full")) : (Race.bRacing ? FString(TEXT("Racing")) : FString::Printf(TEXT("%d / %d"), Race.Players, Race.MaxPlayers)),
+				false, !bFull, Index);
+		}
+		if (Races.Num() == 0)
+		{
+			Add(TEXT("Looking for races on your Wi-Fi..."), EMenuAction::None, FString(), FString(), false, false);
+		}
+		Add(TEXT("Join by address"), EMenuAction::JoinAddress, TEXT("Type the host's IP address"));
+		Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
+		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Music and sound volume"));
+		Add(TEXT("Controls"), EMenuAction::Controls, TEXT("Keys and gamepad"));
+		Add(TEXT("Quit game"), EMenuAction::Quit);
+		break;
+	}
+	case EMenuScreen::Pause:
+		Add(TEXT("Resume"), EMenuAction::Resume);
+		if (bHost && !bRacing)
+		{
+			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
+			Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
+		}
+		if (bHost && bRacing)
+		{
+			Add(TEXT("Restart race"), EMenuAction::Restart, TEXT("Everyone back to the grid"));
+		}
+		if (bRacing)
+		{
+			Add(TEXT("Back to last gate"), EMenuAction::ResetBoat, TEXT("Stuck? Start again from the last gate"));
+		}
+		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Music and sound volume"));
+		Add(TEXT("Controls"), EMenuAction::Controls, TEXT("Keys and gamepad"));
+		Add(GetNetMode() == NM_Standalone ? TEXT("Main menu") : (bHost ? TEXT("End race for everyone") : TEXT("Leave race")),
+			GetNetMode() == NM_Standalone ? EMenuAction::BackToMenu : EMenuAction::Leave);
+		Add(TEXT("Quit game"), EMenuAction::Quit);
+		break;
+	case EMenuScreen::Settings:
+		Add(TEXT("Music"), EMenuAction::Music, TEXT("Left / right to change"), Audio && Audio->IsMusicOn() ? TEXT("On") : TEXT("Off"), true);
+		Add(TEXT("Music volume"), EMenuAction::MusicVolume, TEXT("Left / right to change"), Percent(Audio ? Audio->MusicVolume : 0.45f), true);
+		Add(TEXT("Sound effects volume"), EMenuAction::EffectsVolume, TEXT("Left / right to change"), Percent(Audio ? Audio->EffectsVolume : 1.f), true);
+		Add(TEXT("Back"), EMenuAction::Back);
+		break;
+	case EMenuScreen::Controls:
+	{
+		static const TCHAR* const Rows[][2] =
+		{
+			{ TEXT("Throttle / reverse"), TEXT("W / S    RT / LT") },
+			{ TEXT("Steer"), TEXT("A / D    Left stick") },
+			{ TEXT("Torpedo"), TEXT("SPACE / Left mouse    A") },
+			{ TEXT("Mine"), TEXT("Q / Right mouse    X") },
+			{ TEXT("Back to last gate"), TEXT("R    Y") },
+			{ TEXT("Pause menu"), TEXT("ESC    Menu button") },
+			{ TEXT("Start race (host)"), TEXT("ENTER    Start") },
+			{ TEXT("Change weather (host)"), TEXT("TAB") },
+			{ TEXT("Music on / off"), TEXT("M") },
+		};
+		for (const auto& Row : Rows)
+		{
+			Add(Row[0], EMenuAction::None, FString(), Row[1], false, false);
+		}
+		Add(TEXT("Back"), EMenuAction::Back);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+void ABoatRacePlayerController::HandleMenuInput()
+{
+	TArray<FMenuItem> Items;
+	BuildMenuItems(Items);
+	if (Items.Num() == 0)
+	{
+		return;
+	}
+	auto Selectable = [&Items](int32 Index) { return Items.IsValidIndex(Index) && Items[Index].bEnabled; };
+	MenuSelection = FMath::Clamp(MenuSelection, 0, Items.Num() - 1);
+	if (!Selectable(MenuSelection))
+	{
+		for (int32 Index = 0; Index < Items.Num(); ++Index)
+		{
+			if (Selectable(Index)) { MenuSelection = Index; break; }
+		}
+	}
+
+	auto Move = [&](int32 Step)
+	{
+		for (int32 Tries = 0; Tries < Items.Num(); ++Tries)
+		{
+			MenuSelection = (MenuSelection + Step + Items.Num()) % Items.Num();
+			if (Selectable(MenuSelection))
+			{
+				BoatAudio::Play2D(this, EBoatSound::Beep, 0.15f, 2.2f);
+				return;
+			}
+		}
+	};
+	if (WasInputKeyJustPressed(EKeys::Up) || WasInputKeyJustPressed(EKeys::W) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Up))
+	{
+		Move(-1);
+	}
+	if (WasInputKeyJustPressed(EKeys::Down) || WasInputKeyJustPressed(EKeys::S) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Down))
+	{
+		Move(1);
+	}
+
+	// The mouse: hovering selects, clicking chooses (right-click steps a value back).
+	if (const ABoatRaceHUD* RaceHud = GetHUD<ABoatRaceHUD>())
+	{
+		float MouseX = 0.f, MouseY = 0.f;
+		if (GetMousePosition(MouseX, MouseY))
+		{
+			const int32 Hovered = RaceHud->HitTestMenu(FVector2D(MouseX, MouseY));
+			const bool bMoved = !FVector2D(MouseX, MouseY).Equals(LastMouse, 0.5f);
+			LastMouse = FVector2D(MouseX, MouseY);
+			if (Hovered >= 0 && Selectable(Hovered) && bMoved)
+			{
+				MenuSelection = Hovered;
+			}
+			if (Hovered >= 0 && Selectable(Hovered))
+			{
+				if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
+				{
+					MenuSelection = Hovered;
+					ActivateMenuItem(Items[Hovered], 1);
+					return;
+				}
+				if (WasInputKeyJustPressed(EKeys::RightMouseButton) && Items[Hovered].bAdjustable)
+				{
+					ActivateMenuItem(Items[Hovered], -1);
+					return;
+				}
+			}
+		}
+	}
+
+	const FMenuItem& Selected = Items[MenuSelection];
+	if (Selected.bAdjustable)
+	{
+		if (WasInputKeyJustPressed(EKeys::Left) || WasInputKeyJustPressed(EKeys::A) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Left))
+		{
+			ActivateMenuItem(Selected, -1);
+		}
+		if (WasInputKeyJustPressed(EKeys::Right) || WasInputKeyJustPressed(EKeys::D) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Right))
+		{
+			ActivateMenuItem(Selected, 1);
+		}
+	}
+	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
+	{
+		ActivateMenuItem(Selected, 1);
+	}
+
+	// The old one-key shortcuts still work on the title screen.
+	if (MenuScreen == EMenuScreen::Main)
+	{
 		if (WasInputKeyJustPressed(EKeys::H))
 		{
 			HostRace();
@@ -130,14 +426,91 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 		{
 			bTypingAddress = true;
 		}
+		else if (WasInputKeyJustPressed(EKeys::Tab))
+		{
+			ServerRequestWeather(1);
+		}
 		else
 		{
 			JoinFoundRaceOnKeyPress();
 		}
 	}
-	else if (WasInputKeyJustPressed(EKeys::L))
+}
+
+void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 Step)
+{
+	if (!Item.bEnabled)
 	{
+		return;
+	}
+	UBoatAudioSubsystem* Audio = UBoatAudioSubsystem::Get(this);
+	BoatAudio::Play2D(this, EBoatSound::Beep, 0.3f, 1.3f);
+	switch (Item.Action)
+	{
+	case EMenuAction::Solo:
+	case EMenuAction::StartRace:
+		ServerRequestStart();
+		OpenMenu(EMenuScreen::None);
+		break;
+	case EMenuAction::Host:
+		HostRace();
+		break;
+	case EMenuAction::JoinFound:
+		if (const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr)
+		{
+			if (Discovery->GetFoundRaces().IsValidIndex(Item.Data))
+			{
+				JoinRace(Discovery->GetFoundRaces()[Item.Data].Address);
+			}
+		}
+		break;
+	case EMenuAction::JoinAddress:
+		bTypingAddress = true;
+		break;
+	case EMenuAction::Weather:
+		ServerRequestWeather(Step >= 0 ? 1 : -1);
+		break;
+	case EMenuAction::Music:
+		if (Audio) { Audio->ToggleMusic(); }
+		break;
+	case EMenuAction::MusicVolume:
+		if (Audio) { Audio->SetMusicVolume(Audio->MusicVolume + 0.1f * Step); }
+		break;
+	case EMenuAction::EffectsVolume:
+		if (Audio) { Audio->SetEffectsVolume(Audio->EffectsVolume + 0.1f * Step); }
+		break;
+	case EMenuAction::Settings:
+		OpenMenu(EMenuScreen::Settings);
+		break;
+	case EMenuAction::Controls:
+		OpenMenu(EMenuScreen::Controls);
+		break;
+	case EMenuAction::Resume:
+		OpenMenu(EMenuScreen::None);
+		break;
+	case EMenuAction::Restart:
+		ServerRequestRestart();
+		OpenMenu(EMenuScreen::None);
+		break;
+	case EMenuAction::ResetBoat:
+		ServerRequestReset();
+		OpenMenu(EMenuScreen::None);
+		break;
+	case EMenuAction::Leave:
 		LeaveRace();
+		break;
+	case EMenuAction::BackToMenu:
+		OpenMenu(EMenuScreen::None);
+		UGameplayStatics::OpenLevel(this, FName(RaceMap));
+		break;
+	case EMenuAction::Quit:
+		ConsoleCommand(TEXT("quit"));
+		break;
+	case EMenuAction::Back:
+		OpenMenu(MenuParent);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -230,6 +603,15 @@ void ABoatRacePlayerController::ServerRequestStart_Implementation()
 	}
 }
 
+void ABoatRacePlayerController::ServerRequestRestart_Implementation()
+{
+	UWorld* World = GetWorld();
+	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
+	{
+		RaceMode->RequestStartRace(this, true);
+	}
+}
+
 void ABoatRacePlayerController::ServerRequestWeather_Implementation(int32 Step)
 {
 	UWorld* World = GetWorld();
@@ -252,22 +634,38 @@ void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
 	{
 		return;
 	}
+	const int32 Weathers = static_cast<int32>(ERaceWeather::Count);
+	// First the title screen, photographed, then the race.
+	static bool bMenuShot = false;
 	if (TourClock < 0.f)
 	{
-		TourClock = 0.f;
-		RaceMode->RequestStartRace(this);
+		TourClock -= DeltaTime;
+		MenuScreen = EMenuScreen::Main;
+		if (TourClock < -3.f && !bMenuShot)
+		{
+			bMenuShot = true;
+			FScreenshotRequest::RequestScreenshot(TEXT("Tour_menu"), true, false);
+		}
+		if (TourClock < -4.f)
+		{
+			MenuScreen = EMenuScreen::None;
+			TourClock = 0.f;
+			RaceMode->RequestStartRace(this);
+		}
+		return;
 	}
 	TourClock += DeltaTime;
+	// One stop shows the pause menu over the race.
+	MenuScreen = (TourStep == Weathers + 1) ? EMenuScreen::Pause : EMenuScreen::None;
 
 	const float StepSeconds = 7.f;
-	const int32 Weathers = static_cast<int32>(ERaceWeather::Count);
 	const int32 Step = FMath::FloorToInt((TourClock - 2.f) / StepSeconds);
 	if (Step != TourStep && TourClock > 2.f)
 	{
 		TourStep = Step;
 		if (Step == 0)
 		{
-			FScreenshotRequest::RequestScreenshot(TEXT("Tour_00_grid"), false, false);
+			FScreenshotRequest::RequestScreenshot(TEXT("Tour_00_grid"), true, false);
 			return;
 		}
 		// The last stop is a beauty shot: sunny, camera swung round to the bow.
@@ -300,7 +698,8 @@ void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
 		const FString Name = TourStep <= Weathers
 			? FString::Printf(TEXT("Tour_%02d_%s"), TourStep, RaceWeather::Get(RaceState->GetWeather()).Name)
 			: FString::Printf(TEXT("Tour_%02d_extra"), TourStep);
-		FScreenshotRequest::RequestScreenshot(Name, false, false);
+		// With the HUD, so the text, markers and menus are checked too.
+		FScreenshotRequest::RequestScreenshot(Name, true, false);
 		const FVector Where = Boat->GetActorLocation();
 		UE_LOG(LogBoatRace, Log, TEXT("Photo tour: %s, %.0f fps; boat %.0f km/h, throttle %.2f, ground %.0f cm, at %.0f %.0f %.0f"),
 			*Name, 1.f / FMath::Max(DeltaTime, 0.001f), Boat->GetSpeedKmh(), Boat->GetThrottleInput(),

@@ -238,7 +238,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 	}
 }
 
-void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester)
+void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester, bool bRestart)
 {
 	ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>();
 	if (RaceState == nullptr || Requester == nullptr)
@@ -249,7 +249,8 @@ void ABoatRaceGameMode::RequestStartRace(APlayerController* Requester)
 	// The host is the player whose controller lives on the server machine. On
 	// a dedicated server nobody is, so there any player may start.
 	const bool bMayStart = Requester->IsLocalController() || GetNetMode() == NM_DedicatedServer;
-	const bool bIdle = RaceState->RaceState == ERaceState::Lobby || RaceState->RaceState == ERaceState::Results;
+	// A restart from the pause menu may interrupt a race; ENTER may not.
+	const bool bIdle = bRestart || RaceState->RaceState == ERaceState::Lobby || RaceState->RaceState == ERaceState::Results;
 	if (bMayStart && bIdle)
 	{
 		StartCountdown(RaceState);

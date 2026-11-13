@@ -89,6 +89,11 @@ public:
 	UAudioComponent* MakeLoop(USceneComponent* AttachTo, EBoatSound Sound, bool bPositional);
 
 	void ToggleMusic();
+	bool IsMusicOn() const { return bMusicOn; }
+
+	/** 0..1, remembered for next time. */
+	void SetMusicVolume(float Volume);
+	void SetEffectsVolume(float Volume);
 
 	/** Thunder arrives a moment after the flash, like the real thing. */
 	void QueueThunder(float DelaySeconds, float Volume);

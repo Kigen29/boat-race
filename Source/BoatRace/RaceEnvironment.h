@@ -134,7 +134,7 @@ private:
 	void UpdateFloatingPieces(float Seconds);
 	void UpdateRopes(float Seconds);
 	void UpdateWhirlpools(float Seconds);
-	void UpdatePrecipitation(float Seconds);
+	void UpdatePrecipitation(float Seconds, float DeltaSeconds);
 	void UpdateSky(float Seconds, float DeltaSeconds);
 	void UpdateStartLights();
 	void HighlightNextGate(float Seconds);
@@ -218,6 +218,12 @@ private:
 	TArray<FVector> PrecipitationSeeds;
 	TArray<FTransform> PrecipitationTransforms;
 	EPrecipitation ShownPrecipitation = EPrecipitation::None;
+	/** How far the wind has carried the rain and the clouds so far. Kept as a
+	 *  running sum: multiplying today's wind by the whole elapsed time would
+	 *  throw everything sideways every time the wind shifted. */
+	FVector PrecipitationDrift = FVector::ZeroVector;
+	FVector CloudDrift = FVector::ZeroVector;
+	FVector2D SmoothedWind = FVector2D::ZeroVector;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> CloudDeck;

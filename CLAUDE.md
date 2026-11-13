@@ -65,7 +65,8 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatProjectile` | Torpedoes, mines, explosions, ammunition crates |
 | `RaceEnvironment` | Sky, light, weather (rain, snow, gale, clouds, lightning), pylons, rope lanes, sea stacks, ramps, whirlpools, barges, logs, start gantry and its lights |
 | `BoatRaceGameMode` | Server rules: four-player cap, grid, countdown, laps, wreck recovery, results |
-| `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets |
+| `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets. Text is the engine's Roboto through Slate's font cache (sharp at any size); a compass tape and a world-space waypoint over the next gate; the menu panels |
+| `BoatRacePlayerController` | Menus as data (`BuildMenuItems`): title screen, pause, settings, controls; keys, gamepad and mouse. While a menu is open the boat ignores the driving keys |
 | `LanDiscovery` | Hosts announce on UDP 7778 once a second; the menu lists what it hears, number keys join |
 
 ### Rules that hold the design together

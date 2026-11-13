@@ -323,7 +323,7 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		Precipitation->SetVisibility(Look.Precipitation != EPrecipitation::None);
 		const FLinearColor Tint = Look.Precipitation == EPrecipitation::Snow ? FLinearColor(3.f, 3.f, 3.2f)
 			: (Look.Precipitation == EPrecipitation::Gale ? FLinearColor(2.f, 2.2f, 2.3f) : FLinearColor(1.2f, 1.3f, 1.5f));
-		BoatArt::SetPuff(PrecipitationMaterial, Tint, Look.Precipitation == EPrecipitation::Snow ? 0.95f : 0.45f);
+		BoatArt::SetPuff(PrecipitationMaterial, Tint, Look.Precipitation == EPrecipitation::Snow ? 0.95f : 0.22f);
 	}
 
 	RepaintGates();
@@ -437,6 +437,8 @@ void ARaceEnvironment::BuildSky()
 
 void ARaceEnvironment::UpdateSky(float Seconds, float DeltaSeconds)
 {
+	const FVector2D Gusting = RaceWeather::GetWind(RaceWeather::FromIndex(AppliedWeather), Seconds);
+	SmoothedWind = FMath::Vector2DInterpTo(SmoothedWind, Gusting, DeltaSeconds, 0.5f);
 	const FWeatherLook& Look = RaceWeather::Get(RaceWeather::FromIndex(AppliedWeather));
 	FVector Camera = FVector::ZeroVector;
 	if (const APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
@@ -452,8 +454,9 @@ void ARaceEnvironment::UpdateSky(float Seconds, float DeltaSeconds)
 	// Cumulus drift with the wind, wrapping round a 4 km square.
 	if (Cumulus != nullptr && Cumulus->IsVisible())
 	{
-		const FVector2D Wind = RaceWeather::GetWind(RaceWeather::FromIndex(AppliedWeather), Seconds);
-		const FVector Drift(Seconds * (300.f + Wind.X * 0.6f), Seconds * (120.f + Wind.Y * 0.6f), 0.f);
+		const FVector2D Wind = SmoothedWind;
+		CloudDrift += FVector(300.f + Wind.X * 0.6f, 120.f + Wind.Y * 0.6f, 0.f) * DeltaSeconds;
+		const FVector Drift = CloudDrift;
 		TArray<FTransform> Transforms;
 		Transforms.Reserve(CumulusSeeds.Num());
 		for (int32 Index = 0; Index < CumulusSeeds.Num(); ++Index)
@@ -513,7 +516,7 @@ void ARaceEnvironment::UpdateSky(float Seconds, float DeltaSeconds)
 	SkyLight->SetIntensity(BaseSkyIntensity + Flash * 4.f);
 }
 
-void ARaceEnvironment::UpdatePrecipitation(float Seconds)
+void ARaceEnvironment::UpdatePrecipitation(float Seconds, float DeltaSeconds)
 {
 	if (Precipitation == nullptr || ShownPrecipitation == EPrecipitation::None)
 	{
@@ -526,28 +529,37 @@ void ARaceEnvironment::UpdatePrecipitation(float Seconds)
 		Controller->GetPlayerViewPoint(Camera, Ignored);
 	}
 
-	const FVector2D Wind = RaceWeather::GetWind(RaceWeather::FromIndex(AppliedWeather), Seconds);
+	// The wind, smoothed over a couple of seconds: raindrops and flakes feel
+	// the mean wind, not every flicker of a gust.
+	const FVector2D Wind = SmoothedWind; // smoothed in UpdateSky, every frame
 	FVector Velocity;
 	FVector Box;
 	FVector Scale;
 	switch (ShownPrecipitation)
 	{
 	case EPrecipitation::Snow:
-		Velocity = FVector(Wind.X * 0.35, Wind.Y * 0.35, -140.0);
+		// Flakes sink slowly and drift a little with the breeze.
+		Velocity = FVector(Wind.X * 0.15, Wind.Y * 0.15, -120.0);
 		Box = FVector(6000.0, 6000.0, 3000.0);
-		Scale = FVector(0.09f);
+		Scale = FVector(0.07f);
 		break;
 	case EPrecipitation::Gale:
-		Velocity = FVector(Wind.X * 2.2, Wind.Y * 2.2, -60.0);
+		Velocity = FVector(Wind.X * 1.6, Wind.Y * 1.6, -80.0);
 		Box = FVector(9000.0, 9000.0, 1200.0);
-		Scale = FVector(0.5f, 0.04f, 0.04f);
+		Scale = FVector(0.4f, 0.03f, 0.03f);
 		break;
 	default:
-		Velocity = FVector(Wind.X * 0.7, Wind.Y * 0.7, -1100.0);
+		// Rain falls at about 9 m/s, leaning only slightly with the wind.
+		Velocity = FVector(Wind.X * 0.18, Wind.Y * 0.18, -900.0);
 		Box = FVector(5000.0, 5000.0, 3000.0);
-		Scale = FVector(0.008f, 0.008f, 0.8f);
+		// Wide enough to cover a whole pixel; thinner streaks break into dashes.
+		Scale = FVector(0.02f, 0.02f, 1.0f);
 		break;
 	}
+	PrecipitationDrift += Velocity * DeltaSeconds;
+	// Keep the sum small; the wrap below makes any whole number of boxes invisible.
+	PrecipitationDrift = FVector(FMath::Fmod(PrecipitationDrift.X, Box.X * 64.0), FMath::Fmod(PrecipitationDrift.Y, Box.Y * 64.0),
+		FMath::Fmod(PrecipitationDrift.Z, Box.Z * 64.0));
 	const FRotator Along = ShownPrecipitation == EPrecipitation::Gale
 		? FRotationMatrix::MakeFromX(Velocity).Rotator() : FRotationMatrix::MakeFromZ(-Velocity).Rotator();
 	const FVector Corner = Camera - Box * 0.5 + FVector(0.0, 0.0, Box.Z * 0.15);
@@ -555,11 +567,12 @@ void ARaceEnvironment::UpdatePrecipitation(float Seconds)
 	for (int32 Index = 0; Index < PrecipitationSeeds.Num(); ++Index)
 	{
 		const FVector& Seed = PrecipitationSeeds[Index];
-		FVector Position = Seed * Box + Velocity * Seconds;
+		FVector Position = Seed * Box + PrecipitationDrift;
 		if (ShownPrecipitation == EPrecipitation::Snow)
 		{
-			Position.X += 60.0 * FMath::Sin(Seconds * 1.3 + Index);
-			Position.Y += 60.0 * FMath::Cos(Seconds * 1.1 + Index * 0.7);
+			// Each flake flutters on its own slow, small circle as it falls.
+			Position.X += 35.0 * FMath::Sin(Seconds * (0.7 + Seed.X * 0.6) + Index);
+			Position.Y += 35.0 * FMath::Cos(Seconds * (0.6 + Seed.Y * 0.5) + Index * 0.7);
 		}
 		// Wrap into the box around the camera, so the particles never run out.
 		const FVector Relative = Position - (Corner - FVector(0.0));
@@ -1054,7 +1067,7 @@ void ARaceEnvironment::Tick(float DeltaSeconds)
 	HighlightNextGate(Seconds);
 	UpdateStartLights();
 	UpdateSky(Seconds, DeltaSeconds);
-	UpdatePrecipitation(Seconds);
+	UpdatePrecipitation(Seconds, DeltaSeconds);
 	UpdateTraffic(Seconds, DeltaSeconds);
 
 	// Barges run on the shared clock, so they are in the same place on every

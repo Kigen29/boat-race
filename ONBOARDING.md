@@ -101,6 +101,7 @@ the game changes, or the versions will not match.
 | SPACE or left mouse | Fire a torpedo |
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
+| ESC | Pause menu (also: settings, controls, leave, quit) |
 | ENTER | Host only: start the race |
 | TAB | Host, in the lobby: change the weather |
 | M | Music on / off |

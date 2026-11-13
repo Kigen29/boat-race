@@ -12,6 +12,9 @@ public class BoatRace : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
+			// Crisp scalable HUD text (Roboto through the Slate font cache).
+			"Slate",
+			"SlateCore",
 			// Computer rivals are AI controllers (BoatRivalController).
 			"AIModule",
 			// The moving water surface is built from a procedural mesh.

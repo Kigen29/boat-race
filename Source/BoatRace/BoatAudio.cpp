@@ -780,6 +780,26 @@ void UBoatAudioSubsystem::ToggleMusic()
 	}
 }
 
+void UBoatAudioSubsystem::SetMusicVolume(float Volume)
+{
+	MusicVolume = FMath::Clamp(FMath::RoundToFloat(Volume * 10.f) / 10.f, 0.f, 1.f);
+	if (MusicLoop != nullptr)
+	{
+		MusicLoop->SetVolumeMultiplier(bMusicOn ? FMath::Max(MusicVolume, 0.001f) : 0.f);
+	}
+	SaveConfig();
+}
+
+void UBoatAudioSubsystem::SetEffectsVolume(float Volume)
+{
+	EffectsVolume = FMath::Clamp(FMath::RoundToFloat(Volume * 10.f) / 10.f, 0.f, 1.f);
+	if (SeaLoop != nullptr)
+	{
+		SeaLoop->SetVolumeMultiplier(FMath::Max(0.35f * EffectsVolume, 0.001f));
+	}
+	SaveConfig();
+}
+
 void UBoatAudioSubsystem::QueueThunder(float DelaySeconds, float Volume)
 {
 	if (const UWorld* World = GetWorld())

@@ -35,7 +35,7 @@ public:
 	void ResetBoatToLastGate(ABoatPawn* Boat);
 
 	/** From a player's ENTER key. Only the host may start a race. */
-	void RequestStartRace(APlayerController* Requester);
+	void RequestStartRace(APlayerController* Requester, bool bRestart = false);
 
 	/** From a player's R key: back to the last gate passed. */
 	void RequestResetBoat(APlayerController* Requester);

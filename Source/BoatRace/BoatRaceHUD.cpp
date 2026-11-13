@@ -4,11 +4,17 @@
 #include "BoatPawn.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
+#include "BoatTrack.h"
 #include "BoatRacePlayerState.h"
 #include "BoatTrack.h"
 #include "LanDiscovery.h"
 
 #include "Algo/Sort.h"
+#include "CanvasItem.h"
+#include "Fonts/FontMeasure.h"
+#include "Fonts/SlateFontInfo.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Rendering/SlateRenderer.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
@@ -32,6 +38,7 @@ void ABoatRaceHUD::BeginPlay()
 {
 	Super::BeginPlay();
 	TitleTexture = LoadObject<UTexture2D>(nullptr, TEXT("/Game/Higgsfield/T_Title.T_Title"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	RobotoFont = LoadObject<UFont>(nullptr, TEXT("/Engine/EngineFonts/Roboto.Roboto"), nullptr, LOAD_NoWarn | LOAD_Quiet);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,22 +75,80 @@ FString ABoatRaceHUD::Ordinal(int32 Number)
 	}
 }
 
-void ABoatRaceHUD::DrawLabel(const FString& Text, float X, float Y, float Size, const FLinearColor& Color, float Align, bool bLarge)
+namespace
 {
-	UFont* Font = nullptr;
-	if (GEngine != nullptr)
+	/**
+	 * Size is the old engine-font scale (1 = body text). Roboto is a vector
+	 * font rendered by Slate at the exact pixel size, so it stays sharp at any
+	 * resolution instead of being a stretched bitmap.
+	 */
+	FSlateFontInfo LabelFont(const UFont* Font, float Size, bool bLarge)
 	{
-		Font = bLarge ? GEngine->GetLargeFont() : GEngine->GetMediumFont();
+		// Calibrated so the old layout keeps its proportions.
+		const float Points = FMath::Max(Size * (bLarge ? 9.f : 11.f), 6.f);
+		FSlateFontInfo Info(Font, Points, bLarge ? FName(TEXT("Bold")) : FName(TEXT("Regular")));
+		return Info;
 	}
 
-	float TextWidth = 0.f;
-	float TextHeight = 0.f;
-	GetTextSize(Text, TextWidth, TextHeight, Font, Size);
+	bool CanUseSlateFonts(const UFont* Font)
+	{
+		return Font != nullptr && FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer() != nullptr;
+	}
+}
 
-	const float Left = X - TextWidth * Align;
+FVector2D ABoatRaceHUD::MeasureLabel(const FString& Text, float Size, bool bLarge) const
+{
+	if (CanUseSlateFonts(RobotoFont))
+	{
+		const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+		return Measure->Measure(Text, LabelFont(RobotoFont, Size, bLarge), 1.f);
+	}
+	UFont* Font = GEngine ? (bLarge ? GEngine->GetLargeFont() : GEngine->GetMediumFont()) : nullptr;
+	float TextWidth = 0.f, TextHeight = 0.f;
+	const_cast<ABoatRaceHUD*>(this)->GetTextSize(Text, TextWidth, TextHeight, Font, Size);
+	return FVector2D(TextWidth, TextHeight);
+}
+
+void ABoatRaceHUD::DrawLabel(const FString& Text, float X, float Y, float Size, const FLinearColor& Color, float Align, bool bLarge)
+{
+	if (Canvas == nullptr || Text.IsEmpty())
+	{
+		return;
+	}
+	const FVector2D Extent = MeasureLabel(Text, Size, bLarge);
+	const float Left = FMath::RoundToFloat(X - static_cast<float>(Extent.X) * Align);
+	const float Top = FMath::RoundToFloat(Y);
+
+	if (CanUseSlateFonts(RobotoFont))
+	{
+		FCanvasTextItem Item(FVector2D(Left, Top), FText::FromString(Text), LabelFont(RobotoFont, Size, bLarge), Color);
+		// A soft drop shadow keeps text readable over bright water and sky.
+		Item.EnableShadow(FLinearColor(0.f, 0.f, 0.f, 0.65f * Color.A), FVector2D(1.f, 1.f) * FMath::Clamp(Size * 1.1f, 1.f, 3.f));
+		Canvas->DrawItem(Item);
+		return;
+	}
+	UFont* Font = GEngine ? (bLarge ? GEngine->GetLargeFont() : GEngine->GetMediumFont()) : nullptr;
 	const float Shadow = FMath::Max(1.f, Size * 0.6f);
-	DrawText(Text, FLinearColor(0.f, 0.f, 0.f, 0.8f * Color.A), Left + Shadow, Y + Shadow, Font, Size, false);
-	DrawText(Text, Color, Left, Y, Font, Size, false);
+	DrawText(Text, FLinearColor(0.f, 0.f, 0.f, 0.8f * Color.A), Left + Shadow, Top + Shadow, Font, Size, false);
+	DrawText(Text, Color, Left, Top, Font, Size, false);
+}
+
+void ABoatRaceHUD::DrawPanel(float X, float Y, float W, float H, float Scale, float Alpha)
+{
+	DrawRect(FLinearColor(0.01f, 0.03f, 0.05f, Alpha), X, Y, W, H);
+	DrawRect(FLinearColor(1.f, 0.62f, 0.1f, 0.95f), X, Y, W, FMath::Max(3.f * Scale, 2.f));
+}
+
+void ABoatRaceHUD::DrawTriangle(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color)
+{
+	if (Canvas == nullptr)
+	{
+		return;
+	}
+	FCanvasTriangleItem Triangle(A, B, C, GWhiteTexture);
+	Triangle.SetColor(Color);
+	Triangle.BlendMode = SE_BLEND_Translucent;
+	Canvas->DrawItem(Triangle);
 }
 
 void ABoatRaceHUD::DrawBar(float X, float Y, float Width, float Height, float Fraction, const FLinearColor& Color)
@@ -231,6 +296,20 @@ void ABoatRaceHUD::DrawHUD()
 
 	DrawKillFeed(RaceState, Width, Height, Scale);
 	DrawBanner(Width, Height, Scale);
+
+	// The pause menu over the race, which carries on underneath (it is a
+	// multiplayer game: pausing cannot stop the others).
+	const ABoatRacePlayerController* RaceController = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+	if (RaceController != nullptr && RaceController->GetMenuScreen() != EMenuScreen::None)
+	{
+		DrawRect(FLinearColor(0.f, 0.f, 0.02f, 0.45f), 0.f, 0.f, Width, Height);
+		DrawMenuScreen(Width, Height, Scale);
+	}
+	else
+	{
+		MenuRects.Reset();
+		DrawLabel(TEXT("ESC  menu"), Width - 24.f * Scale, Height - 34.f * Scale, 0.95f * Scale, Faint, 1.f);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -238,79 +317,120 @@ void ABoatRaceHUD::DrawHUD()
 // ---------------------------------------------------------------------------
 void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 {
+	// The title screen: the art (or the live bay) behind a dark wash, the
+	// name on the left, and the menu panel beside it.
 	if (TitleTexture != nullptr)
 	{
 		DrawTexture(TitleTexture.Get(), 0.f, 0.f, Width, Height, 0.f, 0.f, 1.f, 1.f);
 	}
+	DrawRect(FLinearColor(0.f, 0.02f, 0.04f, 0.42f), 0.f, 0.f, Width, Height);
 
-	const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
-	const TArray<FFoundRace> NoRaces;
-	const TArray<FFoundRace>& Races = Discovery ? Discovery->GetFoundRaces() : NoRaces;
-	const int32 RaceRows = FMath::Clamp(Races.Num(), 1, BoatTrack::MaxPlayers);
-
-	const float PanelWidth = 820.f * Scale;
-	const float PanelHeight = (520.f + 120.f + 44.f * RaceRows) * Scale;
-	const float PanelX = (Width - PanelWidth) * 0.5f;
-	const float PanelY = Height * 0.5f - PanelHeight * 0.5f;
-	DrawRect(Panel, PanelX, PanelY, PanelWidth, PanelHeight);
-
-	const float CentreX = Width * 0.5f;
-	float Y = PanelY + 28.f * Scale;
-	DrawLabel(TEXT("BOAT RACE"), CentreX, Y, 3.4f * Scale, Ink, 0.5f, true);
-	Y += 105.f * Scale;
-	DrawLabel(TEXT("Four-player powerboat racing, armed"), CentreX, Y, 1.4f * Scale, Dim, 0.5f);
-	Y += 60.f * Scale;
+	const float Left = Width * 0.07f;
+	const float TitleY = Height * 0.16f;
+	DrawLabel(TEXT("BOAT RACE"), Left, TitleY, 8.f * Scale, Ink, 0.f, true);
+	DrawRect(Accent, Left + 4.f * Scale, TitleY + 112.f * Scale, 140.f * Scale, 5.f * Scale);
+	DrawLabel(TEXT("Offshore powerboat racing for up to four"), Left + 4.f * Scale, TitleY + 132.f * Scale, 1.6f * Scale, Dim);
 
 	const ABoatRacePlayerController* RaceController = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
 	if (RaceController != nullptr && RaceController->IsTypingAddress())
 	{
-		DrawLabel(TEXT("Host address (IP or name):"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
-		Y += 52.f * Scale;
-		const bool bCaretOn = FMath::Fmod(static_cast<float>(GetWorld()->GetRealTimeSeconds()), 1.f) < 0.5f;
-		DrawLabel(RaceController->GetTypedAddress() + (bCaretOn ? TEXT("_") : TEXT(" ")), CentreX, Y, 2.2f * Scale, Accent, 0.5f, true);
-		Y += 82.f * Scale;
-		DrawLabel(TEXT("ENTER  connect        ESC  cancel"), CentreX, Y, 1.3f * Scale, Dim, 0.5f);
+		DrawAddressEntry(Width, Height, Scale);
+		return;
+	}
+	DrawMenuScreen(Width, Height, Scale);
+}
+
+void ABoatRaceHUD::DrawAddressEntry(float Width, float Height, float Scale)
+{
+	const ABoatRacePlayerController* RaceController = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+	const float PanelW = 640.f * Scale, PanelH = 250.f * Scale;
+	const float X = (Width - PanelW) * 0.5f, Y = (Height - PanelH) * 0.5f;
+	MenuRects.Reset();
+	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.85f);
+	DrawLabel(TEXT("JOIN BY ADDRESS"), X + 40.f * Scale, Y + 28.f * Scale, 2.6f * Scale, Ink, 0.f, true);
+	DrawLabel(TEXT("Type the host's IP address (on the host: hostname -I)"), X + 40.f * Scale, Y + 82.f * Scale, 1.15f * Scale, Dim);
+	DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.08f), X + 40.f * Scale, Y + 120.f * Scale, PanelW - 80.f * Scale, 52.f * Scale);
+	const bool bCaretOn = FMath::Fmod(static_cast<float>(GetWorld()->GetRealTimeSeconds()), 1.f) < 0.5f;
+	const FString Typed = RaceController ? RaceController->GetTypedAddress() : FString();
+	DrawLabel(Typed + (bCaretOn ? TEXT("|") : TEXT(" ")), X + 56.f * Scale, Y + 128.f * Scale, 1.6f * Scale, Accent);
+	DrawLabel(TEXT("ENTER  connect          ESC  cancel"), X + 40.f * Scale, Y + 196.f * Scale, 1.1f * Scale, Faint);
+}
+
+void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
+{
+	MenuRects.Reset();
+	const ABoatRacePlayerController* RaceController = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+	if (RaceController == nullptr)
+	{
+		return;
+	}
+	TArray<FMenuItem> Items;
+	RaceController->BuildMenuItems(Items);
+	const EMenuScreen Screen = RaceController->GetMenuScreen();
+	if (Items.Num() == 0)
+	{
 		return;
 	}
 
-	// Races on the same network come first: for most players joining is just
-	// pressing the number next to a friend's name.
-	if (Races.Num() == 0)
+	const TCHAR* Title = Screen == EMenuScreen::Pause ? TEXT("PAUSED")
+		: Screen == EMenuScreen::Settings ? TEXT("SETTINGS")
+		: Screen == EMenuScreen::Controls ? TEXT("CONTROLS") : TEXT("MAIN MENU");
+
+	// Rows of equal height; labels in one column, values right-aligned in another.
+	const float RowH = 50.f * Scale;
+	const float PanelW = (Screen == EMenuScreen::Controls ? 760.f : 620.f) * Scale;
+	const float PanelH = (120.f + Items.Num() * 50.f + 70.f) * Scale;
+	const bool bTitleScreen = RaceController->IsOnMainMenu();
+	const float X = bTitleScreen ? Width * 0.94f - PanelW : (Width - PanelW) * 0.5f;
+	const float Y = FMath::Max((Height - PanelH) * 0.5f, 20.f * Scale);
+	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.8f);
+	DrawLabel(Title, X + 40.f * Scale, Y + 30.f * Scale, 3.f * Scale, Ink, 0.f, true);
+
+	const float Pad = 40.f * Scale;
+	float RowY = Y + 104.f * Scale;
+	const int32 Selected = RaceController->GetMenuSelection();
+	for (int32 Index = 0; Index < Items.Num(); ++Index)
 	{
-		DrawLabel(TEXT("Looking for races on your Wi-Fi..."), CentreX, Y, 1.4f * Scale, Dim, 0.5f);
-		Y += 44.f * Scale;
-	}
-	else
-	{
-		DrawLabel(TEXT("RACES ON YOUR WI-FI"), CentreX, Y, 1.4f * Scale, Dim, 0.5f);
-		Y += 44.f * Scale;
-		for (int32 Index = 0; Index < RaceRows; ++Index)
+		const FMenuItem& Item = Items[Index];
+		const bool bSelected = Index == Selected && Item.bEnabled;
+		const FBox2D Row(FVector2D(X + 16.f * Scale, RowY), FVector2D(X + PanelW - 16.f * Scale, RowY + RowH - 4.f * Scale));
+		MenuRects.Add(Row);
+		if (bSelected)
 		{
-			const FFoundRace& Race = Races[Index];
-			const bool bFull = Race.Players >= Race.MaxPlayers;
-			const FString Status = bFull ? TEXT("full") : Race.bRacing ? TEXT("racing now") : FString::Printf(TEXT("%d/%d players"), Race.Players, Race.MaxPlayers);
-			DrawLabel(FString::Printf(TEXT("%d        Join %s   (%s)"), Index + 1, *Race.Name, *Status),
-				CentreX, Y, 1.6f * Scale, bFull ? Dim : Accent, 0.5f);
-			Y += 44.f * Scale;
+			DrawRect(FLinearColor(1.f, 0.62f, 0.1f, 0.22f), Row.Min.X, Row.Min.Y, Row.GetSize().X, Row.GetSize().Y);
+			DrawRect(Accent, Row.Min.X, Row.Min.Y, 5.f * Scale, Row.GetSize().Y);
+		}
+		const bool bInfo = !Item.bEnabled && Item.Action == EMenuAction::None;
+		const FLinearColor LabelColour = bSelected ? Ink : (Item.bEnabled ? Dim : (bInfo && Screen == EMenuScreen::Controls ? Ink : Faint));
+		const float TextY = RowY + (RowH - 4.f * Scale) * 0.5f - 15.f * Scale;
+		DrawLabel(Item.Label, X + Pad, TextY, 1.45f * Scale, LabelColour);
+		if (!Item.Value.IsEmpty())
+		{
+			const FString Value = Item.bAdjustable ? FString::Printf(TEXT("<   %s   >"), *Item.Value) : Item.Value;
+			DrawLabel(Value, X + PanelW - Pad, TextY, 1.45f * Scale,
+				Item.bAdjustable ? (bSelected ? Accent : Ink) : (Screen == EMenuScreen::Controls ? Accent : Dim), 1.f);
+		}
+		RowY += RowH;
+	}
+
+	// The selected line's explanation, and how to drive the menu.
+	const FString Hint = Items.IsValidIndex(Selected) ? Items[Selected].Hint : FString();
+	DrawLabel(Hint, X + Pad, Y + PanelH - 58.f * Scale, 1.1f * Scale, Faint);
+	DrawLabel(Screen == EMenuScreen::Main ? TEXT("Arrows or mouse to choose     ENTER select")
+		: TEXT("Arrows or mouse to choose     ENTER select     ESC back"),
+		X + Pad, Y + PanelH - 32.f * Scale, 1.f * Scale, Faint);
+}
+
+int32 ABoatRaceHUD::HitTestMenu(const FVector2D& Point) const
+{
+	for (int32 Index = 0; Index < MenuRects.Num(); ++Index)
+	{
+		if (MenuRects[Index].IsInside(Point))
+		{
+			return Index;
 		}
 	}
-	Y += 16.f * Scale;
-
-	DrawLabel(TEXT("H        Host a race (you and up to 3 others)"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
-	Y += 48.f * Scale;
-	DrawLabel(TEXT("J        Join by typing an address"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
-	Y += 48.f * Scale;
-	DrawLabel(TEXT("ENTER    Solo race against three rivals"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
-	Y += 48.f * Scale;
-	if (const ABoatRaceGameState* RaceState = GetWorld()->GetGameState<ABoatRaceGameState>())
-	{
-		DrawLabel(FString::Printf(TEXT("TAB      Weather:  %s"), RaceWeather::Get(RaceState->GetWeather()).Name),
-			CentreX, Y, 1.6f * Scale, Accent, 0.5f);
-	}
-	Y += 64.f * Scale;
-	DrawLabel(TEXT("W / S throttle     A / D steer     SPACE torpedo     Q mine"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
-	Y += 34.f * Scale;
-	DrawLabel(TEXT("R  back to the last gate     M  music on/off     Gamepad: triggers, stick, A, X"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
+	return -1;
 }
 
 void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings, float Width, float Height, float Scale)
@@ -547,7 +667,8 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	}
 	else if (MyBoat != nullptr)
 	{
-		DrawGateCompass(MyBoat, Me, Width, Scale);
+		DrawHeadingStrip(MyBoat, Me, Width, Scale);
+		DrawGateMarker(MyBoat, Me, Width, Height, Scale);
 		DrawWrongWay(MyBoat, Me, Width, Height, Scale);
 	}
 }
@@ -772,45 +893,132 @@ void ABoatRaceHUD::DrawKillFeed(const ABoatRaceGameState* RaceState, float Width
 	}
 }
 
-void ABoatRaceHUD::DrawGateCompass(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale)
+void ABoatRaceHUD::DrawHeadingStrip(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale)
 {
+	// A compass tape across the top of the screen, as on a boat's
+	// instruments: the heading scrolls past and a pip shows the next gate.
+	const float StripW = 520.f * Scale, StripH = 34.f * Scale;
+	const float X0 = (Width - StripW) * 0.5f, Y0 = 18.f * Scale;
+	DrawRect(FLinearColor(0.01f, 0.03f, 0.05f, 0.55f), X0, Y0, StripW, StripH);
+	const float Heading = static_cast<float>(FRotator::NormalizeAxis(Boat->GetActorRotation().Yaw));
+	const float Span = 120.f; // degrees shown across the tape
+	const float PixelsPerDegree = StripW / Span;
+	for (int32 Mark = -180; Mark < 540; Mark += 15)
+	{
+		const float Delta = FRotator::NormalizeAxis(static_cast<float>(Mark) - Heading);
+		if (FMath::Abs(Delta) > Span * 0.5f || Mark >= 180 + 360 || Mark < -180)
+		{
+			continue;
+		}
+		const float Px = X0 + StripW * 0.5f + Delta * PixelsPerDegree;
+		const bool bMajor = (Mark % 45) == 0;
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, bMajor ? 0.8f : 0.35f), Px - 1.f, Y0 + StripH - (bMajor ? 12.f : 7.f) * Scale, 2.f, (bMajor ? 12.f : 7.f) * Scale);
+		if (bMajor && Mark >= -180 && Mark < 180)
+		{
+			// Unreal's +X is east here and yaw grows clockwise from above.
+			static const TCHAR* const Names[] = { TEXT("W"), TEXT("SW"), TEXT("S"), TEXT("SE"), TEXT("E"), TEXT("NE"), TEXT("N"), TEXT("NW") };
+			const int32 Slot = ((Mark + 180) / 45) % 8;
+			DrawLabel(Names[Slot], Px, Y0 + 2.f * Scale, 0.95f * Scale, Dim, 0.5f);
+		}
+	}
+	DrawRect(Ink, X0 + StripW * 0.5f - 1.f, Y0 + StripH - 4.f * Scale, 2.f, 8.f * Scale);
+
 	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
 	if (!Gates.IsValidIndex(RacePlayer->NextGate))
 	{
 		return;
 	}
-
-	// Bearing of the next gate relative to the bow: screen up is dead ahead.
 	const FVector Location = Boat->GetActorLocation();
 	const FVector2D ToGate = Gates[RacePlayer->NextGate].Center - FVector2D(Location.X, Location.Y);
-	const float Distance = static_cast<float>(ToGate.Size());
 	const float Bearing = FMath::RadiansToDegrees(static_cast<float>(FMath::Atan2(ToGate.Y, ToGate.X)));
-	const float Relative = static_cast<float>(FRotator::NormalizeAxis(Bearing - Boat->GetActorRotation().Yaw));
-
-	const float CentreX = Width * 0.5f;
-	const float CentreY = 96.f * Scale;
-	const float Length = 44.f * Scale;
-	const float Angle = FMath::DegreesToRadians(Relative);
-	const FVector2D Direction(FMath::Sin(Angle), -FMath::Cos(Angle));
-	const FVector2D Side(-Direction.Y, Direction.X);
-	const FVector2D Tip = FVector2D(CentreX, CentreY) + Direction * Length;
-	const FVector2D Tail = FVector2D(CentreX, CentreY) - Direction * Length;
-	const FVector2D BarbA = Tip - Direction * (Length * 0.6f) + Side * (Length * 0.4f);
-	const FVector2D BarbB = Tip - Direction * (Length * 0.6f) - Side * (Length * 0.4f);
-
-	const bool bWrongWay = FMath::Abs(Relative) > 110.f;
-	const FLinearColor Color = bWrongWay ? Bad : Accent;
-	const float Thickness = 5.f * Scale;
-	DrawLine(static_cast<float>(Tail.X), static_cast<float>(Tail.Y), static_cast<float>(Tip.X), static_cast<float>(Tip.Y), Color, Thickness);
-	DrawLine(static_cast<float>(Tip.X), static_cast<float>(Tip.Y), static_cast<float>(BarbA.X), static_cast<float>(BarbA.Y), Color, Thickness);
-	DrawLine(static_cast<float>(Tip.X), static_cast<float>(Tip.Y), static_cast<float>(BarbB.X), static_cast<float>(BarbB.Y), Color, Thickness);
-
-	DrawLabel(FString::Printf(TEXT("GATE %d   %d m"), RacePlayer->NextGate + 1, FMath::RoundToInt(Distance / 100.f)),
-		CentreX, CentreY + Length + 10.f * Scale, 1.15f * Scale, Color, 0.5f);
-	if (bWrongWay)
+	const float Relative = FRotator::NormalizeAxis(Bearing - Heading);
+	const float Clamped = FMath::Clamp(Relative, -Span * 0.5f, Span * 0.5f);
+	const float Px = X0 + StripW * 0.5f + Clamped * PixelsPerDegree;
+	const bool bBehind = FMath::Abs(Relative) > 110.f;
+	const FLinearColor Pip = bBehind ? Bad : Accent;
+	// A downward pointer on the tape; a side arrow when the gate is off it.
+	if (FMath::Abs(Relative) <= Span * 0.5f)
 	{
-		DrawLabel(TEXT("TURN AROUND"), CentreX, CentreY + Length + 36.f * Scale, 1.3f * Scale, Bad, 0.5f);
+		DrawTriangle(FVector2D(Px - 9.f * Scale, Y0 + StripH + 2.f * Scale), FVector2D(Px + 9.f * Scale, Y0 + StripH + 2.f * Scale),
+			FVector2D(Px, Y0 + StripH + 14.f * Scale), Pip);
 	}
+	else
+	{
+		const float Dir = Relative > 0.f ? 1.f : -1.f;
+		const float Ex = X0 + StripW * 0.5f + Dir * (StripW * 0.5f + 16.f * Scale);
+		const float Ey = Y0 + StripH * 0.5f;
+		DrawTriangle(FVector2D(Ex - Dir * 10.f * Scale, Ey - 12.f * Scale), FVector2D(Ex - Dir * 10.f * Scale, Ey + 12.f * Scale),
+			FVector2D(Ex + Dir * 10.f * Scale, Ey), Pip);
+	}
+	if (bBehind)
+	{
+		DrawLabel(TEXT("TURN AROUND"), Width * 0.5f, Y0 + StripH + 18.f * Scale, 2.2f * Scale, Bad, 0.5f, true);
+	}
+}
+
+void ABoatRaceHUD::DrawGateMarker(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Height, float Scale)
+{
+	// A marker hanging in the world over the next gate, like a waypoint in an
+	// open-world game: a chevron pointing down at the gap, with the gate
+	// number and distance. When the gate is off screen it sits on the edge
+	// and points towards it.
+	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
+	if (!Gates.IsValidIndex(RacePlayer->NextGate))
+	{
+		return;
+	}
+	const FBoatGate& Gate = Gates[RacePlayer->NextGate];
+	const FVector Target(Gate.Center.X, Gate.Center.Y, 1100.0);
+	const FVector Location = Boat->GetActorLocation();
+	const float Distance = static_cast<float>(FVector::Dist2D(Location, Target)) / 100.f;
+
+	FVector ViewPoint;
+	FRotator ViewRotation;
+	GetOwningPlayerController()->GetPlayerViewPoint(ViewPoint, ViewRotation);
+	const bool bInFront = FVector::DotProduct(ViewRotation.Vector(), Target - ViewPoint) > 0.0;
+	const FVector Projected = Project(Target, false);
+	FVector2D Screen(Projected.X, Projected.Y);
+	const float Margin = 60.f * Scale;
+	const bool bOnScreen = bInFront && Screen.X > Margin && Screen.X < Width - Margin && Screen.Y > Margin && Screen.Y < Height - Margin;
+
+	const float Pulse = 0.85f + 0.15f * FMath::Sin(static_cast<float>(GetWorld()->GetRealTimeSeconds()) * 5.f);
+	const FLinearColor Colour(1.f, 0.62f, 0.1f, 0.95f);
+	const float S = 16.f * Scale * Pulse;
+	if (bOnScreen)
+	{
+		// Chevron: two stacked arrowheads pointing down at the gate.
+		for (int32 Layer = 0; Layer < 2; ++Layer)
+		{
+			const float Oy = static_cast<float>(Screen.Y) - Layer * S * 1.1f;
+			DrawTriangle(FVector2D(Screen.X - S * 1.3f, Oy - S), FVector2D(Screen.X + S * 1.3f, Oy - S), FVector2D(Screen.X, Oy + S * 0.4f),
+				FLinearColor(0.f, 0.f, 0.f, 0.35f));
+			DrawTriangle(FVector2D(Screen.X - S * 1.15f, Oy - S * 1.05f), FVector2D(Screen.X + S * 1.15f, Oy - S * 1.05f),
+				FVector2D(Screen.X, Oy + S * 0.2f), Layer == 0 ? Colour : FLinearColor(1.f, 0.85f, 0.4f, 0.7f));
+		}
+		DrawLabel(FString::Printf(TEXT("GATE %d"), RacePlayer->NextGate + 1), Screen.X, Screen.Y + S * 0.8f, 1.9f * Scale, Ink, 0.5f, true);
+		DrawLabel(FString::Printf(TEXT("%d m"), FMath::RoundToInt(Distance)), Screen.X, Screen.Y + S * 0.8f + 26.f * Scale, 1.f * Scale, Dim, 0.5f);
+		return;
+	}
+
+	// Off screen: pin to the nearest edge in the gate's direction.
+	FVector2D Centre(Width * 0.5f, Height * 0.5f);
+	FVector2D Dir = Screen - Centre;
+	if (!bInFront)
+	{
+		Dir = -Dir;
+	}
+	if (Dir.IsNearlyZero())
+	{
+		Dir = FVector2D(0.f, -1.f);
+	}
+	Dir.Normalize();
+	const float Reach = FMath::Min((Width * 0.5f - Margin) / FMath::Max(FMath::Abs(static_cast<float>(Dir.X)), 0.001f),
+		(Height * 0.5f - Margin) / FMath::Max(FMath::Abs(static_cast<float>(Dir.Y)), 0.001f));
+	const FVector2D Edge = Centre + Dir * Reach;
+	const FVector2D Side(-Dir.Y, Dir.X);
+	DrawTriangle(Edge + Dir * S * 1.3f, Edge - Dir * S * 0.6f + Side * S, Edge - Dir * S * 0.6f - Side * S, Colour);
+	DrawLabel(FString::Printf(TEXT("%d m"), FMath::RoundToInt(Distance)), Edge.X - Dir.X * S * 2.4f, Edge.Y - Dir.Y * S * 2.4f - 12.f * Scale,
+		1.f * Scale, Ink, 0.5f);
 }
 
 void ABoatRaceHUD::DrawDamageEdge(const ABoatPawn* Boat, float Width, float Height)
