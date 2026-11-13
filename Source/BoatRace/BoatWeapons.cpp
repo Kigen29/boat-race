@@ -20,7 +20,7 @@
 
 namespace
 {
-	float ServerNow(const UWorld* World)
+	float WeaponServerNow(const UWorld* World)
 	{
 		const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
 		return RaceState ? RaceState->GetServerNow() : (World ? static_cast<float>(World->GetTimeSeconds()) : 0.f);
@@ -140,7 +140,7 @@ void ABoatMissile::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	Age += DeltaSeconds;
-	const float Seconds = ServerNow(GetWorld());
+	const float Seconds = WeaponServerNow(GetWorld());
 	const FVector Location = GetActorLocation();
 
 	// Smoke trail and a flickering exhaust on every machine.
@@ -349,7 +349,7 @@ void ABoatGrenade::Tick(float DeltaSeconds)
 	Velocity.Z -= 980.f * DeltaSeconds;
 	const FVector Next = GetActorLocation() + Velocity * DeltaSeconds;
 	SetActorLocation(Next);
-	const float Surface = OceanWaves::GetHeight(FVector2D(Next.X, Next.Y), ServerNow(GetWorld()));
+	const float Surface = OceanWaves::GetHeight(FVector2D(Next.X, Next.Y), WeaponServerNow(GetWorld()));
 	if ((Next.Z < Surface + 30.f && Age > 0.3f) || Age > 3.f)
 	{
 		bExploded = true;
