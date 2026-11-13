@@ -6,13 +6,14 @@ Four-player armed powerboat racing for Unreal Engine 5. Code-only: there is no
 
 ## Where things stand
 
-- **v2 has never been compiled or run.** It was written in a cloud workspace
-  with no Unreal Engine and no GPU. v1 did compile cleanly against Unreal 5.9
-  preview-1, so the project layout and build rules are known good.
-- The physics and the course geometry were verified by simulation instead of by
-  playing (see **Verification** below). Both found real bugs.
-- Nothing has been playtested. Handling, difficulty and the sea state are
-  guesses from calculation, not from feel.
+- **v3 compiles and runs** on Unreal 5.9 preview-1 (13 Nov 2026), 60–80 fps on
+  the Intel laptop. Added: land around the bay with cliffs, beaches, narrows
+  and barge channels; Blender models for everything; nine weathers; synthesised
+  sound and music; computer rivals; start lights and race banners; explosions,
+  fire, spray and wake.
+- Checked by `-PhotoTour` screenshots (see **Verification**), not by playing a
+  full race by hand. Handling and rival difficulty are still unplayed.
+- Multiplayer across two machines is untested since v2.
 
 ## The machine this is built on
 
@@ -44,12 +45,17 @@ If it says files differ, `git restore .` takes the repository's version.
 
 | File | Job |
 |---|---|
+| `BayTerrain` | The land: one height function from the shore table in `BoatTrackData.h`. Builds the mesh (solid near the course), plants trees and rocks, places the grandstand, cottages, lighthouse, bridge and duck, and tells boats which way the water is |
+| `BoatArt` | Loads `/Game/Models/SM_*` and repaints every material slot from the hex colour in its name (`Leaf_5CB646`). `Paint_*` slots take a player's or buoy's colour, `Lamp*` glow; snow and night are tints |
+| `RaceWeather` | The nine weathers as data, plus wind and lightning timing from the shared clock. The host's choice is one replicated byte on the game state |
+| `BoatAudio` | Every sound synthesised in code at startup (no audio files) and played through procedural waves; a world subsystem runs the music, rain, wind and sea beds |
+| `BoatRivalController` | Computer rivals: an AI controller with a player state that drives the boat by setting its throttle and rudder |
 | `OceanWaves` | Six sine components, vertical displacement only. Pure maths on (position, time), so every machine agrees with nothing sent |
 | `WaterSurface` | The visible sea: a procedural mesh grid displaced every frame, following the camera in whole cells |
 | `BoatTrack` + `BoatTrackData.h` | Circuit and scenery as data. **The .h is generated — edit `Scripts/course_layout.py`, not the header** |
 | `BoatPawn` | 1200 kg rigid body: four buoyancy probes, hydrodynamics, engine, rudder, networking, weapons, damage |
 | `BoatProjectile` | Torpedoes, mines, explosions, ammunition crates |
-| `RaceEnvironment` | Sky, weather, light, buoys, rock spires, ramps, whirlpools, barges, debris |
+| `RaceEnvironment` | Sky, light, weather (rain, snow, gale, clouds, lightning), pylons, rope lanes, sea stacks, ramps, whirlpools, barges, logs, start gantry and its lights |
 | `BoatRaceGameMode` | Server rules: four-player cap, grid, countdown, laps, wreck recovery, results |
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets |
 | `LanDiscovery` | Hosts announce on UDP 7778 once a second; the menu lists what it hears, number keys join |
@@ -64,6 +70,9 @@ If it says files differ, `git restore .` takes the repository's version.
   sent over the network.
 - **The owner simulates its own boat; everyone else holds a kinematic copy.**
   The server counts gates from reported positions and decides all damage.
+- **Models are made in Blender by `Scripts/make_models.py`,** never by hand:
+  metres, +X forward, origin at the waterline, materials named `Part_RRGGBB`.
+  Anything solid gets a plain invisible collision shape; the model is looks only.
 - **Tuning lives in `Config/DefaultGame.ini`,** not in code. Every handling
   number is a `UPROPERTY(Config)`. All four players need the same values.
 
@@ -80,9 +89,20 @@ same from 120 fps down to 20 fps. It has already caught a propeller mounted
 above the waterline (top speed zero) and drag following the hull's tilted axes
 (the boat dragged itself under in turns).
 
+Visual check, after anything that changes how the game looks:
+
+```bash
+Scripts/play.sh menu -PhotoTour     # races, visits every weather, sets off a blast, quits
+```
+
+Screenshots land in `Saved/Screenshots/LinuxEditor/`. The tour drives the
+player's boat itself; keys pressed in its window still count.
+
 `course_layout.py` checks that gate lines never cross, that no obstacle blocks
 a gate, that the barges cross the racing line, and that driving the line scores
-every gate in order while driving it backwards scores none.
+every gate in order while driving it backwards scores none. It also checks the
+shore: every buoy, the whole width of the course, every obstacle, the barge
+runs and the grid must be water.
 
 ## Conventions
 
@@ -94,13 +114,14 @@ every gate in order while driving it backwards scores none.
 
 ## Known gaps, roughly in order of value
 
-1. **It has not been compiled.** Expect UHT or API errors on 5.9 preview first.
-2. **No sound at all.**
-3. **No spray, wake or foam.** Needs Niagara, which is authored in the editor.
-4. **No shoreline.** The bay edge is a force that pushes boats back.
-5. Handling is unplayed: `TurnRate`, `WaveRoughness` and `BuoyancyMultiplier`
-   are the first dials to try.
-6. Each player's own boat position is trusted — fine for friends, not for
+1. **Not played by hand.** Rival skill (`RivalSkill`), handling (`TurnRate`,
+   `WaveRoughness`, `BuoyancyMultiplier`) and crash damage are guesses.
+2. **Multiplayer not retested** across machines since the rivals and weather
+   were added.
+3. **Effects are mesh puffs, not Niagara.** Spray, smoke and fire are pooled
+   soft spheres; good enough on integrated graphics, not film quality.
+4. **No crowd or commentator.** The grandstand is empty; sound is synthesised.
+5. Each player's own boat position is trusted — fine for friends, not for
    strangers.
 
 ## Higgsfield assets

@@ -7,6 +7,7 @@
 #include "Common/UdpSocketBuilder.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerState.h"
 #include "HAL/PlatformProcess.h"
 #include "IPAddress.h"
 #include "SocketSubsystem.h"
@@ -104,7 +105,16 @@ void ULanDiscovery::Announce()
 
 	const UWorld* World = GetGameInstance()->GetWorld();
 	const ABoatRaceGameState* RaceState = World->GetGameState<ABoatRaceGameState>();
-	const int32 Players = RaceState ? RaceState->PlayerArray.Num() : 1;
+	// People only: computer rivals step aside when someone joins.
+	int32 Players = 1;
+	if (RaceState != nullptr)
+	{
+		Players = 0;
+		for (const APlayerState* Player : RaceState->PlayerArray)
+		{
+			Players += (Player != nullptr && !Player->IsABot()) ? 1 : 0;
+		}
+	}
 	const bool bRacing = RaceState && RaceState->RaceState != ERaceState::Lobby;
 
 	// Name goes last so that nothing in it can upset the fields before it.

@@ -28,6 +28,9 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRequestReset();
 
+	UFUNCTION(Server, Reliable)
+	void ServerRequestWeather(int32 Step);
+
 private:
 	void HandleAddressTyping();
 	/** Number keys on the menu join the races listed under "on your Wi-Fi". */
@@ -35,6 +38,11 @@ private:
 	void HostRace();
 	void JoinRace(const FString& Address);
 	void LeaveRace();
+	/** -PhotoTour: drives a scripted tour of every weather and takes screenshots. */
+	void RunPhotoTour(float DeltaTime);
+
+	float TourClock = -1.f;
+	int32 TourStep = -1;
 
 	bool bTypingAddress = false;
 	FString TypedAddress;

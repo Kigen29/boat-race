@@ -1,5 +1,8 @@
 #include "BoatPawn.h"
 
+#include "BayTerrain.h"
+#include "BoatArt.h"
+#include "BoatAudio.h"
 #include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
@@ -8,6 +11,9 @@
 #include "OceanWaves.h"
 
 #include "Camera/CameraComponent.h"
+#include "Components/AudioComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -16,6 +22,8 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
+#include "RaceWeather.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
 #include "UObject/ConstructorHelpers.h"
@@ -106,6 +114,26 @@ ABoatPawn::ABoatPawn()
 	DamageMesh = MakePart(TEXT("DamageMesh"), Sphere, FVector(-150.f, 0.f, 220.f), FRotator::ZeroRotator, FVector(1.6f));
 	DamageMesh->SetVisibility(false);
 
+	FireLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("FireLight"));
+	FireLight->SetupAttachment(VisualRoot);
+	FireLight->SetRelativeLocation(FVector(-330.f, 0.f, 160.f));
+	FireLight->SetLightColor(FLinearColor(1.f, 0.45f, 0.12f));
+	FireLight->SetIntensity(0.f);
+	FireLight->SetAttenuationRadius(2400.f);
+	FireLight->SetCastShadows(false);
+	FireLight->SetVisibility(false);
+
+	Headlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Headlight"));
+	Headlight->SetupAttachment(VisualRoot);
+	Headlight->SetRelativeLocation(FVector(330.f, 0.f, 90.f));
+	Headlight->SetRelativeRotation(FRotator(-6.f, 0.f, 0.f));
+	Headlight->SetIntensity(0.f);
+	Headlight->SetAttenuationRadius(9000.f);
+	Headlight->SetOuterConeAngle(32.f);
+	Headlight->SetInnerConeAngle(18.f);
+	Headlight->SetCastShadows(false);
+	Headlight->SetVisibility(false);
+
 	// The camera hangs off the hull but is told not to inherit its roll and
 	// pitch, so a wave or a barrel roll does not throw the view around.
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -187,6 +215,8 @@ void ABoatPawn::BeginPlay()
 
 	TryLoadCustomMesh();
 	UpdatePhysicsMode();
+	Hull->OnComponentHit.AddDynamic(this, &ABoatPawn::OnHullHit);
+	BuildEffects();
 
 	UE_LOG(LogBoatRace, Log,
 		TEXT("Boat ready: %.0f kg, buoyancy %.0f per probe, heave damping %.0f, drag %.4f, yaw inertia %.3g"),
@@ -284,6 +314,8 @@ void ABoatPawn::Tick(float DeltaSeconds)
 	}
 
 	UpdateCosmetics(DeltaSeconds);
+	UpdateEffects(DeltaSeconds);
+	UpdateAudio(DeltaSeconds);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +327,17 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 	float Steer = 0.f;
 
 	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
-	if (PlayerController != nullptr && CanDrive())
+	if (PlayerController == nullptr)
+	{
+		// A computer rival has already set the controls through SetDriverInput.
+		if (!CanDrive())
+		{
+			InputThrottle = 0.f;
+			InputSteer = 0.f;
+		}
+		return;
+	}
+	if (CanDrive())
 	{
 		if (PlayerController->IsInputKeyDown(EKeys::W) || PlayerController->IsInputKeyDown(EKeys::Up))
 		{
@@ -322,6 +364,19 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 		{
 			Steer += StickX;
 		}
+	}
+
+	// -PhotoTour drives the player's boat at the next gate, so the screenshots
+	// show the boat under way with its wake and spray.
+	static const bool bAutopilot = FParse::Param(FCommandLine::Get(), TEXT("PhotoTour"));
+	const ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
+	if (bAutopilot && CanDrive() && Racer != nullptr && BoatTrack::GetGates().IsValidIndex(Racer->NextGate))
+	{
+		const FVector2D ToGate = BoatTrack::GetGates()[Racer->NextGate].Center - FVector2D(GetActorLocation().X, GetActorLocation().Y);
+		const float Error = FMath::FindDeltaAngleDegrees(static_cast<float>(GetActorRotation().Yaw),
+			FMath::RadiansToDegrees(FMath::Atan2(ToGate.Y, ToGate.X)));
+		Throttle = 0.85f;
+		Steer = FMath::Clamp(Error / 30.f, -1.f, 1.f);
 	}
 
 	InputThrottle = FMath::Clamp(Throttle, -1.f, 1.f);
@@ -377,6 +432,8 @@ void ABoatPawn::SimulatePhysics(float DeltaSeconds, float WaveTime)
 	ApplyEngineAndRudder(DeltaSeconds);
 	ApplyWhirlpools();
 	KeepInsideBay();
+	ApplyWindAndShore();
+	LastVelocity = Hull->GetPhysicsLinearVelocity();
 
 	// A capsize should cost time, not end the race, so help the hull back over
 	// once it is past the point where buoyancy alone would right it.
@@ -855,6 +912,7 @@ void ABoatPawn::ClientHitFeedback_Implementation()
 {
 	const UWorld* World = GetWorld();
 	LastHitWallClock = World ? static_cast<float>(World->GetTimeSeconds()) : 0.f;
+	CameraShake = FMath::Max(CameraShake, 0.85f);
 }
 
 float ABoatPawn::GetTimeSinceHit() const
@@ -985,6 +1043,11 @@ void ABoatPawn::UpdateCosmetics(float DeltaSeconds)
 		const float SpeedFraction = FMath::Clamp(FMath::Abs(GetForwardSpeed()) / ReferenceTopSpeed, 0.f, 1.f);
 		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, 85.f + 13.f * SpeedFraction, DeltaSeconds, 2.f));
 		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, 1450.f + 220.f * SpeedFraction, DeltaSeconds, 2.f);
+
+		// A jolt for crashes, landings and nearby blasts, plus a faint buzz at speed.
+		CameraShake = FMath::Max(CameraShake - DeltaSeconds * 1.8f, 0.f);
+		const float Shake = CameraShake * CameraShake * 60.f + SpeedFraction * 2.f;
+		Camera->SetRelativeLocation(FVector(0.f, FMath::FRandRange(-Shake, Shake), FMath::FRandRange(-Shake, Shake)));
 	}
 }
 
@@ -1003,18 +1066,32 @@ void ABoatPawn::TryApplyPlayerColor()
 		SetPartColor(HullMesh, Color);
 		SetPartColor(BowMesh, Color);
 	}
+	else
+	{
+		// The Blender boat's topsides, stripes and roll cage are its Paint slots.
+		BoatArt::FLook Look;
+		Look.Paint = Color;
+		BoatArt::Paint(CustomMesh, Look);
+	}
 	bColorApplied = true;
 }
 
 void ABoatPawn::TryLoadCustomMesh()
 {
-	UStaticMesh* BoatModel = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Higgsfield/SM_Boat.SM_Boat"), nullptr, LOAD_NoWarn | LOAD_Quiet);
-	if (BoatModel == nullptr)
+	// The Blender race boat by default; the Higgsfield one if asked for or if
+	// the Blender models have not been imported; the placeholder otherwise.
+	UStaticMesh* Model = BoatModel.Equals(TEXT("Higgsfield"), ESearchCase::IgnoreCase) ? nullptr : BoatArt::Model(TEXT("RaceBoat"));
+	const bool bBlenderBoat = Model != nullptr;
+	if (Model == nullptr)
 	{
-		return; // No Higgsfield model imported: keep the placeholder boat.
+		Model = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Higgsfield/SM_Boat.SM_Boat"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	}
+	if (Model == nullptr)
+	{
+		return; // No model imported: keep the placeholder boat.
 	}
 
-	const FBoxSphereBounds Bounds = BoatModel->GetBounds();
+	const FBoxSphereBounds Bounds = Model->GetBounds();
 	const float SizeX = static_cast<float>(Bounds.BoxExtent.X) * 2.f;
 	const float SizeY = static_cast<float>(Bounds.BoxExtent.Y) * 2.f;
 	const float Longest = FMath::Max(SizeX, SizeY);
@@ -1026,8 +1103,15 @@ void ABoatPawn::TryLoadCustomMesh()
 
 	// A generated model arrives at an arbitrary scale and heading, so scale it
 	// to the hull's real length and lay its long axis along the direction of travel.
-	const float Scale = (HullLength / Longest) * FMath::Max(CustomMeshScaleMultiplier, 0.01f);
-	const float Yaw = (SizeY > SizeX ? 90.f : 0.f) + CustomMeshYawOffset;
+	// The Blender boat is 7.7 m over the outboard, on a 7 m hull.
+	const float Scale = (HullLength / Longest) * (bBlenderBoat ? 1.1f : 1.f) * FMath::Max(CustomMeshScaleMultiplier, 0.01f);
+	float Yaw = (SizeY > SizeX ? 90.f : 0.f) + CustomMeshYawOffset;
+	if (bBlenderBoat && SizeX >= SizeY && Bounds.Origin.X > 0.0)
+	{
+		// The outboard hangs off the stern, so the bounds sit aft of the
+		// middle. If they sit forward, the importer turned the boat round.
+		Yaw += 180.f;
+	}
 	const FRotator Rotation(0.f, Yaw, 0.f);
 
 	const FVector ScaledOrigin = Bounds.Origin * static_cast<double>(Scale);
@@ -1035,7 +1119,7 @@ void ABoatPawn::TryLoadCustomMesh()
 	const float ModelBottom = static_cast<float>(Bounds.Origin.Z - Bounds.BoxExtent.Z) * Scale;
 	const float OffsetZ = -HullHeight * 0.5f - ModelBottom + CustomMeshZOffset;
 
-	CustomMesh->SetStaticMesh(BoatModel);
+	CustomMesh->SetStaticMesh(Model);
 	CustomMesh->SetRelativeScale3D(FVector(Scale));
 	CustomMesh->SetRelativeRotation(Rotation);
 	CustomMesh->SetRelativeLocation(FVector(Centering.X, Centering.Y, static_cast<double>(OffsetZ)));
@@ -1047,5 +1131,453 @@ void ABoatPawn::TryLoadCustomMesh()
 	EngineMesh->SetVisibility(false);
 	bUsingCustomMesh = true;
 
-	UE_LOG(LogBoatRace, Log, TEXT("Using the Higgsfield boat model (scale %.3f, yaw %.0f)."), Scale, Yaw);
+	UE_LOG(LogBoatRace, Log, TEXT("Using the %s boat model (scale %.3f, yaw %.0f, %.0f cm long)."),
+		bBlenderBoat ? TEXT("Blender") : TEXT("Higgsfield"), Scale, Yaw, Longest * Scale);
+}
+
+// ---------------------------------------------------------------------------
+// Computer drivers
+// ---------------------------------------------------------------------------
+void ABoatPawn::SetDriverInput(float Throttle, float Steer)
+{
+	InputThrottle = FMath::Clamp(Throttle, -1.f, 1.f);
+	const UWorld* World = GetWorld();
+	const float DeltaSeconds = World ? World->GetDeltaSeconds() : 0.016f;
+	InputSteer = FMath::FInterpTo(InputSteer, FMath::Clamp(Steer, -1.f, 1.f), DeltaSeconds, 8.f);
+}
+
+void ABoatPawn::RequestFire(bool bMine)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	if (bMine)
+	{
+		ServerDropMine_Implementation();
+	}
+	else
+	{
+		ServerFireTorpedo_Implementation();
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Wind and the shore
+// ---------------------------------------------------------------------------
+void ABoatPawn::ApplyWindAndShore()
+{
+	const FVector Location = GetActorLocation();
+	const FVector2D Position(Location.X, Location.Y);
+
+	// Wind: a steady shove on the hull and windscreen, stronger in the gusts.
+	// Every machine works out the same wind from the shared clock and weather.
+	const UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	if (RaceState != nullptr)
+	{
+		const FVector2D Wind = RaceWeather::GetWind(RaceState->GetWeather(), RaceState->GetServerNow());
+		const FVector Velocity = Hull->GetPhysicsLinearVelocity();
+		const FVector2D Relative = Wind - FVector2D(Velocity.X, Velocity.Y);
+		// Only the part of the wind faster than the boat pushes it; a light
+		// boat in a 14 m/s gust is pushed at about a tenth of a g.
+		const FVector Push(Relative.X * 0.06, Relative.Y * 0.06, 0.0);
+		if (!Push.ContainsNaN() && Wind.SizeSquared() > 1.0)
+		{
+			Hull->AddForce(Push * (HullMassKg * 0.5f));
+		}
+	}
+
+	// The shore: the land mesh is solid, but a boat that runs up a beach is
+	// helped back off it rather than left stranded.
+	const float Ground = BayTerrain::GetHeight(Position);
+	if (Ground > -140.f)
+	{
+		const float Depth = FMath::Clamp((Ground + 140.f) / 200.f, 0.f, 2.5f);
+		const FVector2D Seaward = BayTerrain::GetSeaward(Position);
+		const FVector Velocity = Hull->GetPhysicsLinearVelocity();
+		FVector Force(Seaward.X * HullMassKg * 650.f * Depth, Seaward.Y * HullMassKg * 650.f * Depth, 0.0);
+		// Grinding on sand slows the boat down too.
+		Force -= FVector(Velocity.X, Velocity.Y, 0.0) * (HullMassKg * 0.9f * FMath::Min(Depth, 1.f));
+		if (!Force.ContainsNaN())
+		{
+			Hull->AddForce(Force);
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Crashes
+// ---------------------------------------------------------------------------
+void ABoatPawn::OnHullHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent,
+	FVector NormalImpulse, const FHitResult& Hit)
+{
+	if (!IsLocallyControlled() || OtherActor == this)
+	{
+		return;
+	}
+	const UWorld* World = GetWorld();
+	const float Now = World ? static_cast<float>(World->GetTimeSeconds()) : 0.f;
+	// How fast we were closing on whatever we hit, from before the bounce.
+	const float Closing = static_cast<float>(-FVector::DotProduct(LastVelocity, FVector(Hit.ImpactNormal)));
+	if (Closing < 450.f || Now - LastImpactTime < 0.4f)
+	{
+		return;
+	}
+	LastImpactTime = Now;
+	CameraShake = FMath::Max(CameraShake, FMath::Clamp(Closing / 1800.f, 0.25f, 1.f));
+	BoatAudio::PlayAt(this, EBoatSound::Crash, Hit.ImpactPoint, FMath::Clamp(Closing / 1500.f, 0.3f, 1.f), FMath::FRandRange(0.9f, 1.1f));
+	for (int32 Index = 0; Index < 6; ++Index)
+	{
+		EmitPuff(Hit.ImpactPoint, FVector(FMath::FRandRange(-300.f, 300.f), FMath::FRandRange(-300.f, 300.f), FMath::FRandRange(300.f, 700.f)),
+			0.8f, 120.f, 380.f, FLinearColor(0.85f, 0.9f, 0.95f), 0.6f, 900.f);
+	}
+
+	ABoatPawn* OtherBoat = Cast<ABoatPawn>(OtherActor);
+	if (HasAuthority())
+	{
+		HandleImpact(Hit.ImpactPoint, Closing, OtherBoat);
+	}
+	else
+	{
+		ServerReportImpact(Hit.ImpactPoint, Closing, OtherBoat);
+	}
+}
+
+void ABoatPawn::ServerReportImpact_Implementation(FVector_NetQuantize Location, float Speed, ABoatPawn* OtherBoat)
+{
+	HandleImpact(Location, FMath::Clamp(Speed, 0.f, ReferenceTopSpeed * 1.5f), OtherBoat);
+}
+
+void ABoatPawn::HandleImpact(const FVector& Location, float Speed, ABoatPawn* OtherBoat)
+{
+	MulticastImpact(Location, Speed);
+
+	ABoatRacePlayerState* Me = GetPlayerState<ABoatRacePlayerState>();
+	ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	auto Report = [RaceState](ABoatPawn* Victim, const ABoatRacePlayerState* By)
+	{
+		if (RaceState != nullptr && Victim != nullptr)
+		{
+			const ABoatRacePlayerState* VictimState = Victim->GetPlayerState<ABoatRacePlayerState>();
+			RaceState->ReportWreck(VictimState ? VictimState->GetPlayerName() : FString(TEXT("A boat")),
+				By ? By->GetPlayerName() : FString());
+		}
+	};
+
+	if (OtherBoat != nullptr)
+	{
+		// Ramming: the boat that was hit takes the damage, and the rammer gets the credit.
+		const float Damage = FMath::Clamp((Speed - 600.f) / 45.f, 0.f, 22.f);
+		if (Damage > 0.f && OtherBoat->ApplyDamage(Damage, Me))
+		{
+			Report(OtherBoat, Me);
+		}
+	}
+	else
+	{
+		// Rocks, barges, logs and the shore: a hard hit hurts your own hull.
+		const float Damage = FMath::Clamp((Speed - 1000.f) / 55.f, 0.f, 30.f);
+		if (Damage > 0.f && ApplyDamage(Damage, nullptr))
+		{
+			Report(this, nullptr);
+		}
+	}
+}
+
+void ABoatPawn::MulticastImpact_Implementation(FVector_NetQuantize Location, float Speed)
+{
+	if (!IsLocallyControlled())
+	{
+		BoatAudio::PlayAt(this, EBoatSound::Crash, Location, FMath::Clamp(Speed / 1500.f, 0.3f, 1.f), FMath::FRandRange(0.9f, 1.1f));
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Spray, wake, smoke and fire
+// ---------------------------------------------------------------------------
+void ABoatPawn::BuildEffects()
+{
+	const UWorld* World = GetWorld();
+	if (World == nullptr || World->GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+
+	const int32 PoolSize = 30;
+	Puffs.SetNum(PoolSize);
+	for (int32 Index = 0; Index < PoolSize; ++Index)
+	{
+		UStaticMeshComponent* Puff = NewObject<UStaticMeshComponent>(this);
+		Puff->SetStaticMesh(Sphere);
+		Puff->SetupAttachment(Hull);
+		Puff->SetUsingAbsoluteLocation(true);
+		Puff->SetUsingAbsoluteRotation(true);
+		Puff->SetUsingAbsoluteScale(true);
+		Puff->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Puff->SetCastShadow(false);
+		Puff->SetVisibility(false);
+		Puff->RegisterComponent();
+		UMaterialInstanceDynamic* Material = BoatArt::SoftMaterial(Puff, FLinearColor::White, 0.f);
+		Puff->SetMaterial(0, Material);
+		PuffMeshes.Add(Puff);
+		PuffMaterials.Add(Material);
+	}
+
+	// The rooster tail the outboard throws up at speed.
+	RoosterTail = NewObject<UStaticMeshComponent>(this);
+	RoosterTail->SetStaticMesh(Cone);
+	RoosterTail->SetupAttachment(VisualRoot);
+	RoosterTail->SetRelativeLocation(FVector(-560.f, 0.f, 40.f));
+	RoosterTail->SetRelativeRotation(FRotator(-60.f, 0.f, 0.f));
+	RoosterTail->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RoosterTail->SetCastShadow(false);
+	RoosterTail->RegisterComponent();
+	RoosterMaterial = BoatArt::SoftMaterial(RoosterTail, FLinearColor(0.9f, 0.95f, 1.f), 0.f);
+	RoosterTail->SetMaterial(0, RoosterMaterial);
+	RoosterTail->SetVisibility(false);
+
+	// Flames out of the engine cowling when the hull is nearly gone.
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		UStaticMeshComponent* Flame = NewObject<UStaticMeshComponent>(this);
+		Flame->SetStaticMesh(Cone);
+		Flame->SetupAttachment(VisualRoot);
+		Flame->SetRelativeLocation(FVector(-360.f + Index * 40.f, (Index - 1) * 35.f, 110.f));
+		Flame->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Flame->SetCastShadow(false);
+		Flame->RegisterComponent();
+		Flame->SetMaterial(0, BoatArt::GlowMaterial(Flame, Index == 1 ? FLinearColor(9.f, 3.f, 0.4f) : FLinearColor(7.f, 1.6f, 0.15f)));
+		Flame->SetVisibility(false);
+		Flames.Add(Flame);
+	}
+}
+
+void ABoatPawn::EmitPuff(const FVector& Location, const FVector& Velocity, float Life, float StartSize, float EndSize,
+	const FLinearColor& Color, float Opacity, float Gravity, float Flat, bool bOnWater)
+{
+	if (Puffs.Num() == 0)
+	{
+		return;
+	}
+	const int32 Index = NextPuff;
+	NextPuff = (NextPuff + 1) % Puffs.Num();
+	FPuff& Puff = Puffs[Index];
+	Puff.Age = 0.f;
+	Puff.Life = Life;
+	Puff.Velocity = Velocity;
+	Puff.StartSize = StartSize;
+	Puff.EndSize = EndSize;
+	Puff.Color = Color;
+	Puff.Opacity = Opacity;
+	Puff.Gravity = Gravity;
+	Puff.Flat = Flat;
+	Puff.bOnWater = bOnWater;
+	if (PuffMeshes.IsValidIndex(Index) && PuffMeshes[Index] != nullptr)
+	{
+		PuffMeshes[Index]->SetWorldLocation(Location);
+		PuffMeshes[Index]->SetWorldScale3D(FVector(StartSize / 100.f));
+		PuffMeshes[Index]->SetVisibility(true);
+	}
+}
+
+void ABoatPawn::UpdateEffects(float DeltaSeconds)
+{
+	if (PuffMeshes.Num() == 0 || DeltaSeconds <= 0.f)
+	{
+		return;
+	}
+
+	const FVector Location = GetActorLocation();
+	const FVector Forward = GetActorForwardVector();
+	const FVector Right = GetActorRightVector();
+	const float Speed = GetForwardSpeed();
+	const float SpeedFraction = FMath::Clamp(FMath::Abs(Speed) / ReferenceTopSpeed, 0.f, 1.f);
+	const float Surface = OceanWaves::GetHeight(FVector2D(Location.X, Location.Y), GetWaveTime());
+	const float AboveWater = static_cast<float>(Location.Z) - Surface - BoatTrack::BoatRideHeight;
+	const bool bInWater = AboveWater < 120.f;
+
+	// --- Landing from a jump: a sheet of water and a slap.
+	if (!bInWater)
+	{
+		AirTime += DeltaSeconds;
+	}
+	else
+	{
+		if (AirTime > 0.45f)
+		{
+			BoatAudio::PlayAt(this, EBoatSound::Splash, Location, FMath::Clamp(AirTime, 0.5f, 1.f), FMath::FRandRange(0.8f, 1.f));
+			for (int32 Index = 0; Index < 10; ++Index)
+			{
+				const float Angle = Index * 0.628f;
+				const FVector Out = Forward * FMath::Cos(Angle) + Right * FMath::Sin(Angle);
+				EmitPuff(Location + Out * 250.f, Out * 500.f + FVector(0, 0, 650.f), 1.f, 90.f, 320.f,
+					FLinearColor(0.92f, 0.96f, 1.f) * 1.6f, 0.45f, 900.f);
+			}
+			if (IsLocallyControlled())
+			{
+				CameraShake = FMath::Max(CameraShake, FMath::Clamp(AirTime * 0.7f, 0.3f, 0.9f));
+			}
+		}
+		AirTime = 0.f;
+	}
+
+	// Foam is unlit, so match it to the light: bright in sun, dim at night.
+	const ABoatRaceGameState* WeatherState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	const FWeatherLook& Light = RaceWeather::Get(WeatherState ? WeatherState->GetWeather() : ERaceWeather::Sunny);
+	const float Foam = Light.bNight ? 0.12f : FMath::Clamp(Light.SunIntensity / 7.f + Light.SkyIntensity * 0.25f, 0.35f, 1.6f);
+
+	// --- Wake and spray, in proportion to speed. The wake is flat foam left
+	// lying on the water behind the transom; the bow throws small, short-lived
+	// sheets of spray out to the sides.
+	if (bInWater && SpeedFraction > 0.12f && !bWrecked)
+	{
+		SprayAccumulator += DeltaSeconds * (5.f + 16.f * SpeedFraction);
+		while (SprayAccumulator > 1.f)
+		{
+			SprayAccumulator -= 1.f;
+			const bool bBow = FMath::FRand() < 0.35f;
+			const float Side = FMath::RandBool() ? 1.f : -1.f;
+			if (bBow)
+			{
+				EmitPuff(Location + Forward * 180.f + Right * (Side * 130.f) + FVector(0, 0, -30),
+					Right * (Side * 450.f * SpeedFraction) - Forward * (Speed * 0.2f) + FVector(0, 0, 300.f * SpeedFraction),
+					0.5f, 35.f, 120.f, FLinearColor(0.92f, 0.96f, 1.f) * Foam, 0.28f, 800.f, 0.7f, false);
+			}
+			else
+			{
+				EmitPuff(Location - Forward * FMath::FRandRange(380.f, 460.f) + Right * FMath::FRandRange(-90.f, 90.f),
+					Right * FMath::FRandRange(-120.f, 120.f), 2.f + SpeedFraction, 140.f, 380.f + 260.f * SpeedFraction,
+					FLinearColor(0.92f, 0.96f, 1.f) * Foam, 0.32f, 0.f, 0.08f, true);
+			}
+		}
+	}
+
+	// --- Smoke from a damaged engine; thick and black from a wreck.
+	const float HealthFraction = MaxHealth > 0.f ? Health / MaxHealth : 1.f;
+	if (bWrecked || HealthFraction < 0.45f)
+	{
+		SmokeAccumulator += DeltaSeconds * (bWrecked ? 14.f : (HealthFraction < 0.25f ? 9.f : 4.f));
+		while (SmokeAccumulator > 1.f)
+		{
+			SmokeAccumulator -= 1.f;
+			const float Grey = bWrecked ? 0.03f : 0.12f;
+			EmitPuff(Location - Forward * 340.f + FVector(0, 0, 150.f),
+				FVector(FMath::FRandRange(-60.f, 60.f), FMath::FRandRange(-60.f, 60.f), FMath::FRandRange(220.f, 380.f)) - Forward * Speed * 0.3f,
+				bWrecked ? 3.f : 2.2f, 90.f, bWrecked ? 700.f : 450.f, FLinearColor(Grey, Grey, Grey), 0.65f, -60.f);
+		}
+	}
+
+	// --- Animate the pool.
+	for (int32 Index = 0; Index < Puffs.Num(); ++Index)
+	{
+		FPuff& Puff = Puffs[Index];
+		UStaticMeshComponent* Mesh = PuffMeshes[Index];
+		if (Puff.Life <= 0.f || Mesh == nullptr)
+		{
+			continue;
+		}
+		Puff.Age += DeltaSeconds;
+		const float Alpha = Puff.Age / Puff.Life;
+		if (Alpha >= 1.f)
+		{
+			Puff.Life = 0.f;
+			Mesh->SetVisibility(false);
+			continue;
+		}
+		Puff.Velocity.Z -= Puff.Gravity * DeltaSeconds;
+		Puff.Velocity *= FMath::Max(1.f - DeltaSeconds * 1.2f, 0.f);
+		FVector Position = Mesh->GetComponentLocation() + Puff.Velocity * DeltaSeconds;
+		if (Puff.bOnWater)
+		{
+			Position.Z = OceanWaves::GetHeight(FVector2D(Position.X, Position.Y), GetWaveTime()) + 8.0;
+		}
+		Mesh->SetWorldLocation(Position);
+		const float Size = FMath::Lerp(Puff.StartSize, Puff.EndSize, FMath::Sqrt(Alpha)) / 100.f;
+		Mesh->SetWorldScale3D(FVector(Size, Size, Size * Puff.Flat));
+		BoatArt::SetPuff(PuffMaterials[Index], Puff.Color, Puff.Opacity * (1.f - Alpha) * FMath::Min(Alpha * 8.f, 1.f));
+	}
+
+	// --- Rooster tail.
+	if (RoosterTail != nullptr)
+	{
+		// Kept off: a solid cone reads as a white pole, not water. The bow
+		// spray and the foam wake carry the sense of speed instead.
+		const bool bShow = false;
+		RoosterTail->SetVisibility(bShow);
+		if (bShow)
+		{
+			const float Length = 1.5f + 4.f * SpeedFraction;
+			RoosterTail->SetRelativeScale3D(FVector(0.8f + FMath::FRandRange(-0.08f, 0.08f), 0.8f, Length));
+			BoatArt::SetPuff(RoosterMaterial, FLinearColor(0.9f, 0.95f, 1.f) * 1.6f, 0.25f * SpeedFraction);
+		}
+	}
+
+	// --- Fire.
+	const bool bBurning = bWrecked || HealthFraction < 0.25f;
+	const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+	for (int32 Index = 0; Index < Flames.Num(); ++Index)
+	{
+		UStaticMeshComponent* Flame = Flames[Index];
+		if (Flame == nullptr)
+		{
+			continue;
+		}
+		Flame->SetVisibility(bBurning);
+		if (bBurning)
+		{
+			const float Flicker = 0.75f + 0.25f * FMath::Sin(Now * (17.f + Index * 5.f) + Index) + FMath::FRandRange(-0.1f, 0.1f);
+			const float Height = (bWrecked ? 2.4f : 1.5f) * Flicker * (Index == 1 ? 1.3f : 1.f);
+			Flame->SetRelativeScale3D(FVector(0.55f * Flicker, 0.55f * Flicker, Height));
+		}
+	}
+	FireLight->SetVisibility(bBurning);
+	FireLight->SetIntensity(bBurning ? 9000.f * (0.8f + 0.4f * FMath::Sin(Now * 23.f)) : 0.f);
+
+	// --- Running light at night.
+	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	const bool bNight = RaceState && RaceWeather::Get(RaceState->GetWeather()).bNight;
+	Headlight->SetVisibility(bNight && !bWrecked);
+	Headlight->SetIntensity(bNight ? 60000.f : 0.f);
+}
+
+void ABoatPawn::UpdateAudio(float DeltaSeconds)
+{
+	UBoatAudioSubsystem* Audio = UBoatAudioSubsystem::Get(this);
+	if (Audio == nullptr)
+	{
+		return;
+	}
+	if (EngineAudio == nullptr)
+	{
+		EngineAudio = Audio->MakeLoop(Hull, EBoatSound::Engine, true);
+		WaterAudio = Audio->MakeLoop(Hull, EBoatSound::WaterRush, true);
+		if (EngineAudio == nullptr)
+		{
+			return;
+		}
+		EngineAudio->Play();
+		if (WaterAudio != nullptr)
+		{
+			WaterAudio->Play();
+		}
+	}
+
+	const float Throttle = IsLocallyControlled() ? InputThrottle : NetState.Throttle;
+	const float SpeedFraction = FMath::Clamp(FMath::Abs(GetForwardSpeed()) / ReferenceTopSpeed, 0.f, 1.f);
+	// Revs follow speed, with a flare on the throttle and when the prop leaves the water.
+	const float Airborne = AirTime > 0.15f ? 0.45f : 0.f;
+	const float TargetRevs = bWrecked ? 0.f : FMath::Clamp(0.15f + 0.65f * SpeedFraction + 0.25f * FMath::Abs(Throttle) + Airborne, 0.f, 1.3f);
+	EngineRevs = FMath::FInterpTo(EngineRevs, TargetRevs, DeltaSeconds, TargetRevs > EngineRevs ? 3.f : 1.8f);
+
+	EngineAudio->SetPitchMultiplier(0.65f + 1.75f * EngineRevs);
+	const float Loudness = (bWrecked ? 0.f : 0.3f + 0.55f * FMath::Abs(Throttle) + 0.25f * SpeedFraction) * (IsLocallyControlled() ? 0.75f : 1.f);
+	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness, 0.001f));
+	if (WaterAudio != nullptr)
+	{
+		WaterAudio->SetVolumeMultiplier(FMath::Max(SpeedFraction * (AirTime > 0.1f ? 0.1f : 0.9f), 0.001f));
+		WaterAudio->SetPitchMultiplier(0.8f + 0.5f * SpeedFraction);
+	}
 }

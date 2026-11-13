@@ -61,7 +61,9 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 | SPACE or left mouse | Fire a torpedo |
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
-| ENTER | Host: start the race. On the menu: solo practice |
+| ENTER | Host: start the race. On the menu: solo race against three computer rivals |
+| TAB | Menu or lobby (host): next weather. SHIFT+TAB goes back |
+| M | Music on / off |
 | H / J | Menu: host / join by typed address |
 | 1–4 | Menu: join a race found on your Wi-Fi |
 | L | Leave the race |

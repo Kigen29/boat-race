@@ -37,6 +37,20 @@ CRATES=[(0,.80,-8),(2,.25,10),(4,.75,-10),(5,.80,8),(7,.80,-9),(9,.75,9),(11,.80
 DEBRIS=[(1,.20,34),(1,.75,-32),(3,.30,30),(4,.25,-34),(6,.40,33),(6,.85,-30),
         (8,.20,31),(9,.20,-33),(10,.60,32),(12,.25,-31),(13,.70,30),(15,.40,-33)]
 BARGES=[((340,-230),(640,-230),44.0),((-370,-140),(-640,-140),52.0)]
+# Floating logs: segment, fraction, offset (solid, like the debris barrels)
+LOGS  =[(0,.30,-30),(3,.75,-31),(5,.40,30),(7,.25,-32),(11,.25,31),(13,.20,-31),(15,.75,30)]
+# The land. For each racing-line point: how far the water reaches on the
+# inside of the circuit, on the outside (metres from the line), and how much
+# of each shore is cliff rather than beach (0 beach .. 1 sheer rock). Points 8-9
+# are the narrows, 14-15 a second, gentler pinch; 3-5 and 11-13 are cliff coast.
+SHORE=[ # inside, outside, cliff in, cliff out
+ (105,140,0.0,0.0),(100,130,0.1,0.0),(110,120,0.3,0.4),(115,110,0.5,0.9),
+ (100,115,0.4,1.0),(95,110,0.5,0.9),(105,120,0.8,0.3),(100,100,0.9,0.2),
+ ( 62, 64,1.0,0.8),( 63, 62,1.0,0.9),(100, 95,0.4,0.6),(110,105,0.2,0.9),
+ (100,110,0.1,1.0),( 95,100,0.0,0.8),( 70, 72,0.2,0.4),( 80, 95,0.1,0.1)]
+# Barges run in their own dredged channels this wide either side of the path,
+# carried on past each end so the barge never touches the bank.
+BARGE_CHANNEL=34.0; BARGE_OVERRUN=30.0
 fail=0; solid=[]
 def check(name,items,rad,mingate,collect=False):
     global fail
@@ -66,6 +80,46 @@ for (a,b,per) in BARGES:
     for p,y,r in rocks+ramps:
         if d_seg(p,a,b) < r+25:
             fail+=1; print("FAIL barge path passes within %.0f m of obstacle %s" % (d_seg(p,a,b),p))
+logs=check("logs",LOGS,lambda it:4.0,10)
+def shore_side(p):
+    """(clearance, i, t) - how far inside the water p is, the strongest segment."""
+    best=-1e18
+    for i in range(N):
+        a,b=PTS[i],PTS[(i+1)%N]; ab=sub(b,a)
+        t=max(0.0,min(1.0,dot(sub(p,a),ab)/dot(ab,ab)))
+        q=add(a,mul(ab,t)); d=dist(p,q)
+        inside = crs(ab,sub(p,a))>0      # counter-clockwise: left is inside
+        k=0 if inside else 1
+        S=SHORE[i][k]*(1-t)+SHORE[(i+1)%N][k]*t
+        best=max(best,S-d)
+    for (a,b,per) in BARGES:
+        f=norm(sub(b,a)); a2=sub(a,mul(f,BARGE_OVERRUN)); b2=add(b,mul(f,BARGE_OVERRUN))
+        best=max(best,BARGE_CHANNEL-d_seg(p,a2,b2))
+    return best
+clear_fail=0
+def must_be_water(name,p,need):
+    global fail,clear_fail
+    c=shore_side(p)
+    if c<need:
+        fail+=1; clear_fail+=1
+        if clear_fail<12: print("FAIL %-8s %8.1f %8.1f is only %.1f m from the shore (want %.0f)"%(name,p[0],p[1],c,need))
+for g in gates:
+    must_be_water("buoy",g['inner'],8); must_be_water("buoy",g['outer'],8)
+for i in range(N):
+    for k in range(21):
+        for off in (-HALF_W,-HALF_W/2,0,HALF_W/2,HALF_W):
+            p,_=on_line(i,k/20.0,off); must_be_water("course",p,10)
+for name,items in (("rock",rocks),("ramp",ramps),("pool",pools),("crate",crates),("debris",debris),("log",logs)):
+    for p,y,r in items: must_be_water(name,p,r+6)
+for (a,b,per) in BARGES:
+    for k in range(31):
+        must_be_water("barge",add(a,mul(sub(b,a),k/30.0)),12)
+g0=gates[0]
+for row in range(2):
+    for side in (-14,14):
+        must_be_water("grid",add(sub(g0['c'],mul(g0['f'],25+18*row)),mul((-g0['f'][1],g0['f'][0]),side)),12)
+narrow=min(SHORE[i][0]+SHORE[i][1] for i in range(N))
+print("shore: every buoy, the whole course width, obstacles, barge runs and the grid are water; narrowest %.0f m bank to bank"%narrow)
 # drive the line
 def crossed(g,a,b):
     d=sub(b,a)
@@ -87,8 +141,10 @@ for q in path[1:]:
         if nxt==0: laps+=1
         passed+=1; nxt=(nxt+1)%N
     prev=q
-if passed!=3*N or laps!=3: fail+=1
-print("driving the line: %d gates, %d laps (want %d, 3)" % (passed,laps,3*N))
+# The path ends exactly on the start line, and that last crossing is what
+# completes lap three: 3 laps of N gates plus the opening crossing.
+if passed!=3*N+1 or laps!=3: fail+=1
+print("driving the line: %d gates, %d laps (want %d, 3)" % (passed,laps,3*N+1))
 rev=0;nxt=0;prev=path[-1]
 for q in reversed(path[:-1]):
     if crossed(gates[nxt],prev,q): rev+=1;nxt=(nxt+1)%N
@@ -118,6 +174,9 @@ emit("Ramps",[(p[0],p[1],y) for p,y,r in ramps],"Jump ramps: X, Y, heading in de
 emit("Whirlpools",[(p[0],p[1],r) for p,y,r in pools],"Whirlpools: X, Y, radius",3)
 emit("Crates",[(p[0],p[1]) for p,y,r in crates],"Ammo crates: X, Y",2)
 emit("Debris",[(p[0],p[1]) for p,y,r in debris],"Floating debris barrels: X, Y",2)
+emit("Logs",[(p[0],p[1],y) for p,y,r in logs],"Floating logs: X, Y, heading in degrees",3)
+emit("Shore",SHORE,"Shore per racing-line point: water reach inside, outside (m), cliff inside, outside (0..1)",4)
+L.append("\tconst double BargeChannelMetres = %.1f;\n\tconst double BargeOverrunMetres = %.1f;\n" % (BARGE_CHANNEL,BARGE_OVERRUN))
 emit("Barges",[(a[0],a[1],b[0],b[1],per) for a,b,per in BARGES],"Moving barges: from X, Y, to X, Y, round-trip seconds",5)
 L.append("}")
 open("BoatTrackData.h","w").write("\n".join(L)+"\n")

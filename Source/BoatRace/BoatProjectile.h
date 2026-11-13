@@ -6,6 +6,8 @@
 
 class ABoatPawn;
 class ABoatRacePlayerState;
+class UMaterialInstanceDynamic;
+class UPointLightComponent;
 class USphereComponent;
 class UStaticMeshComponent;
 
@@ -24,8 +26,9 @@ namespace BoatBlast
 }
 
 /**
- * The visible part of an explosion: a flash that swells and fades, with a ring
- * spreading out across the water.
+ * The visible part of an explosion: a fireball of several swelling flames, a
+ * column of white water, chunks of debris thrown out on arcs, rolling black
+ * smoke, a shock ring across the water and a flash of light, with the boom.
  *
  * Spawned by the server and replicated, then animated independently on each
  * machine, so no per-frame network traffic.
@@ -54,11 +57,36 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Explosion")
 	TObjectPtr<UStaticMeshComponent> Ring;
 
+	UPROPERTY(VisibleAnywhere, Category = "Explosion")
+	TObjectPtr<UPointLightComponent> Glare;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 private:
+	/** One animated piece: a flame, a jet of water, a chunk or a smoke puff. */
+	struct FBit
+	{
+		int32 Kind = 0;
+		FVector Start = FVector::ZeroVector;
+		FVector Velocity = FVector::ZeroVector;
+		FVector Spin = FVector::ZeroVector;
+		float Delay = 0.f;
+		float Life = 1.f;
+		float Size = 1.f;
+	};
+	TArray<FBit> Bits;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> BitMeshes;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> BitMaterials;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> RingMaterial;
+
 	float Age = 0.f;
-	float Lifetime = 1.3f;
+	float Lifetime = 4.2f;
 };
 
 /**
@@ -183,6 +211,7 @@ protected:
 
 private:
 	bool bExploded = false;
+	bool bArmSounded = false;
 };
 
 /**
@@ -222,7 +251,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Crate")
 	TObjectPtr<UStaticMeshComponent> Marker;
 
+	virtual void BeginPlay() override;
+
 private:
+	bool bWasAvailable = true;
 	int32 Torpedoes = 3;
 	int32 Mines = 2;
 	float RespawnSeconds = 15.f;

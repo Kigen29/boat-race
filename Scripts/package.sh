@@ -68,11 +68,13 @@ One player hosts: press H on the menu (or ./host.sh).
 On the same Wi-Fi the others just open the game: the host's race is listed
 on the menu, press 1 to join. (J joins by typing an address; ./join.sh too.)
 
-The host presses ENTER to start. 3 laps, pass every gate in order
-(red buoy with a cone on the inside, green buoy with a ball on the outside).
+The host presses ENTER to start; empty seats are filled by computer rivals.
+Pass every gate in order: orange pylons on the inside, white on the outside,
+yellow at the start. TAB in the lobby changes the weather.
 
 W / S   throttle / reverse        A / D   steer
-R       back to the last gate     L       leave the race
+SPACE   torpedo                   Q       mine
+R       back to the last gate     L       leave the race       M  music
 
 If the race is not listed: same Wi-Fi? Host firewall: sudo ufw allow 7777:7778/udp
 Over the internet: the host forwards UDP port 7777 on their router to their

@@ -29,6 +29,9 @@ struct FBoatRamp
 	float Yaw = 0.f;
 };
 
+/** A floating log: solid, bobbing in place. Same shape of data as a ramp. */
+using FBoatLog = FBoatRamp;
+
 /** A rotating current that drags boats in and around. */
 struct FBoatWhirlpool
 {
@@ -88,6 +91,7 @@ namespace BoatTrack
 	const TArray<FVector2D>& GetCratePoints();
 	const TArray<FVector2D>& GetDebrisPoints();
 	const TArray<FBoatBarge>& GetBarges();
+	const TArray<FBoatLog>& GetLogs();
 
 	/** Where a barge is at a given time. Same answer on every machine. */
 	FVector2D GetBargeLocation(const FBoatBarge& Barge, float Seconds);

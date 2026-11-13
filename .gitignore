@@ -27,6 +27,8 @@ HiggsfieldAssets/*.mp4
 # Imported Unreal assets, rebuilt by Scripts/import_assets.sh
 Content/Higgsfield/*.uasset
 Content/Higgsfield/*.umap
+Content/Higgsfield/BoatImport/
+Content/Models/
 
 # Editor and OS leftovers
 *~

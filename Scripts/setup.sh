@@ -159,12 +159,14 @@ else
 		|| warn "Download failed. The game still runs with its placeholder boat."
 fi
 
-if ls Content/Higgsfield/*.uasset >/dev/null 2>&1; then
+# The Blender models are committed as Art/Models/*.glb; Blender is only needed
+# to change them (Scripts/make_models.sh).
+if ls Content/Higgsfield/*.uasset >/dev/null 2>&1 && ls Content/Models/SM_*.uasset >/dev/null 2>&1; then
 	ok "Already imported"
-elif [ -s HiggsfieldAssets/SM_Boat.glb ]; then
+elif [ -s HiggsfieldAssets/SM_Boat.glb ] || ls Art/Models/*.glb >/dev/null 2>&1; then
 	echo "    Importing into Unreal, this opens the editor and takes a few minutes..."
-	if bash Scripts/import_assets.sh >/dev/null 2>&1 && ls Content/Higgsfield/*.uasset >/dev/null 2>&1; then
-		ok "Imported the boat, the water material and the menu art"
+	if bash Scripts/import_assets.sh >/dev/null 2>&1 && ls Content/Models/SM_*.uasset >/dev/null 2>&1; then
+		ok "Imported the 3D models, the materials and the menu art"
 	else
 		warn "Import did not finish. The game still runs with placeholders."
 		warn "To retry by hand: Scripts/editor.sh, then Tools > Execute Python Script"
@@ -180,8 +182,8 @@ cat <<'NEXT'
     Scripts/play.sh host       start hosting straight away
     Scripts/play.sh join ADDR  join someone else's race
 
-    On the menu:  H host    J join    ENTER solo practice
-    Driving:      W/S throttle   A/D steer   SPACE torpedo   Q mine   R reset
+    On the menu:  H host    J join    ENTER solo race vs three rivals    TAB weather
+    Driving:      W/S throttle   A/D steer   SPACE torpedo   Q mine   R reset   M music
 
     To race with three friends, see ONBOARDING.md.
 NEXT

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "RaceWeather.h"
 #include "BoatRaceGameState.generated.h"
 
 UENUM()
@@ -68,6 +69,15 @@ public:
 
 	UPROPERTY(Replicated)
 	int32 TotalLaps = 2;
+
+	/** ERaceWeather as a byte; the host picks it in the lobby. */
+	UPROPERTY(Replicated)
+	uint8 WeatherIndex = 0;
+
+	ERaceWeather GetWeather() const { return RaceWeather::FromIndex(WeatherIndex); }
+
+	/** Server only. */
+	void SetWeather(ERaceWeather Weather) { WeatherIndex = static_cast<uint8>(Weather); }
 
 protected:
 	virtual void BeginPlay() override;

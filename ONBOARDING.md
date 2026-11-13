@@ -66,6 +66,8 @@ Mac machine; Linux can't build one.
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
 | ENTER | Host only: start the race |
+| TAB | Host, in the lobby: change the weather |
+| M | Music on / off |
 | L | Leave |
 
 Gamepad: right trigger throttle, left trigger reverse, left stick steer,
@@ -77,13 +79,21 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 - Pass the gates **in order**. Orange buoys mark the inside of the course,
   white the outside, and the start line is the pair of tall yellow ones. Your
   next gate pulses and the needle at the top of the screen points at it.
+- Empty seats are taken by computer rivals (Kestrel, Marlin, Barracuda,
+  Osprey), so there are always four boats. A friend who joins takes one.
+- Five red lights come on a second apart; when they go out, go.
+- The host picks the weather in the lobby with TAB: sunny, cloudy, rainy,
+  stormy (lightning), windy (gusts push the boats), snowy, foggy, sunset or
+  night.
 - Shooting is a racing tactic, not a kill count. Wrecking someone costs them
   about eight seconds: four drifting, plus the run back up to speed.
 - Your own blast cannot damage you, but it can shove you off line.
 - Ammunition is in the floating crates on the course. They come back 15 seconds
   after being taken.
-- Watch for the rock spires, the two barges crossing the course, the ramps and
-  the three whirlpools.
+- Watch for the sea stacks, the floating logs, the two barges crossing the
+  course in their channels, the ramps, the three whirlpools, and the narrows
+  under the red bridge. Hard hits on rocks and the shore cost hull; ramming
+  another boat hurts them, not you.
 
 ## When something goes wrong
 

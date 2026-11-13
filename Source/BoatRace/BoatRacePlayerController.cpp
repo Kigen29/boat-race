@@ -1,7 +1,12 @@
 #include "BoatRacePlayerController.h"
 
+#include "BayTerrain.h"
+#include "BoatAudio.h"
+#include "BoatPawn.h"
+#include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameMode.h"
+#include "BoatRaceGameState.h"
 #include "BoatTrack.h"
 #include "LanDiscovery.h"
 
@@ -9,6 +14,8 @@
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
+#include "UnrealClient.h"
 
 namespace
 {
@@ -83,6 +90,24 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	{
 		HandleAddressTyping();
 		return;
+	}
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("PhotoTour")))
+	{
+		RunPhotoTour(DeltaTime);
+	}
+
+	// TAB: the host picks the weather between races (SHIFT+TAB goes back).
+	if (WasInputKeyJustPressed(EKeys::Tab))
+	{
+		ServerRequestWeather(IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift) ? -1 : 1);
+	}
+	if (WasInputKeyJustPressed(EKeys::M))
+	{
+		if (UBoatAudioSubsystem* Audio = UBoatAudioSubsystem::Get(this))
+		{
+			Audio->ToggleMusic();
+		}
 	}
 
 	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
@@ -202,6 +227,82 @@ void ABoatRacePlayerController::ServerRequestStart_Implementation()
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
 		RaceMode->RequestStartRace(this);
+	}
+}
+
+void ABoatRacePlayerController::ServerRequestWeather_Implementation(int32 Step)
+{
+	UWorld* World = GetWorld();
+	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
+	{
+		RaceMode->RequestWeatherChange(this, FMath::Clamp(Step, -1, 1));
+	}
+}
+
+void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
+{
+	// Starts a race with rivals, photographs the grid under the start lights,
+	// then visits a different stretch of the course in each kind of weather,
+	// and quits. Screenshots land in Saved/Screenshots.
+	UWorld* World = GetWorld();
+	ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr;
+	ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	ABoatPawn* Boat = Cast<ABoatPawn>(GetPawn());
+	if (RaceMode == nullptr || RaceState == nullptr || Boat == nullptr)
+	{
+		return;
+	}
+	if (TourClock < 0.f)
+	{
+		TourClock = 0.f;
+		RaceMode->RequestStartRace(this);
+	}
+	TourClock += DeltaTime;
+
+	const float StepSeconds = 7.f;
+	const int32 Weathers = static_cast<int32>(ERaceWeather::Count);
+	const int32 Step = FMath::FloorToInt((TourClock - 2.f) / StepSeconds);
+	if (Step != TourStep && TourClock > 2.f)
+	{
+		TourStep = Step;
+		if (Step == 0)
+		{
+			FScreenshotRequest::RequestScreenshot(TEXT("Tour_00_grid"), false, false);
+			return;
+		}
+		if (Step > Weathers + 2)
+		{
+			ConsoleCommand(TEXT("quit"));
+			return;
+		}
+		// Weather can only change between races, so do it as the server would.
+		RaceState->SetWeather(RaceWeather::FromIndex((Step - 1) % Weathers));
+		const int32 Gates = BoatTrack::NumGates();
+		const FTransform Spot = BoatTrack::GetGateResetTransform((Step * 5) % Gates);
+		Boat->TeleportBoat(Spot.GetLocation(), static_cast<float>(Spot.Rotator().Yaw));
+	}
+	// The last two stops set off a blast ahead of the boat to show the explosion.
+	static int32 BlastStep = -1;
+	const float IntoStep = TourClock - 2.f - TourStep * StepSeconds;
+	if (TourStep > Weathers && TourStep != BlastStep && IntoStep > (TourStep == Weathers + 1 ? 3.5f : 3.f))
+	{
+		BlastStep = TourStep;
+		BoatBlast::Detonate(World, Boat->GetActorLocation() + Boat->GetActorForwardVector() * 3500.f, 900.f, 0.f, 0.f, Boat);
+	}
+
+	// Shoot halfway through each step, once the boat has settled and moved off.
+	static int32 ShotStep = -1;
+	if (TourStep > 0 && TourStep != ShotStep && TourClock - 2.f - TourStep * StepSeconds > 4.f)
+	{
+		ShotStep = TourStep;
+		const FString Name = TourStep <= Weathers
+			? FString::Printf(TEXT("Tour_%02d_%s"), TourStep, RaceWeather::Get(RaceState->GetWeather()).Name)
+			: FString::Printf(TEXT("Tour_%02d_extra"), TourStep);
+		FScreenshotRequest::RequestScreenshot(Name, false, false);
+		const FVector Where = Boat->GetActorLocation();
+		UE_LOG(LogBoatRace, Log, TEXT("Photo tour: %s, %.0f fps; boat %.0f km/h, throttle %.2f, ground %.0f cm, at %.0f %.0f %.0f"),
+			*Name, 1.f / FMath::Max(DeltaTime, 0.001f), Boat->GetSpeedKmh(), Boat->GetThrottleInput(),
+			BayTerrain::GetHeight(FVector2D(Where.X, Where.Y)), Where.X, Where.Y, Where.Z);
 	}
 }
 

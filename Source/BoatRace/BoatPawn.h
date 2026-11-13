@@ -1,11 +1,16 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/NetSerialization.h"
 #include "GameFramework/Pawn.h"
 #include "BoatPawn.generated.h"
 
 class ABoatRacePlayerState;
+class UAudioComponent;
 class UBoxComponent;
+class UMaterialInstanceDynamic;
+class UPointLightComponent;
+class USpotLightComponent;
 class UCameraComponent;
 class USceneComponent;
 class USpringArmComponent;
@@ -85,6 +90,15 @@ public:
 
 	void GiveAmmo(int32 Torpedoes, int32 Mines);
 
+	/** For a computer driver: the throttle and rudder it would get from the keys. */
+	void SetDriverInput(float Throttle, float Steer);
+
+	/** A jolt of the camera, 0..1; only the local player's view moves. */
+	void ShakeCamera(float Amount) { CameraShake = FMath::Max(CameraShake, Amount); }
+
+	/** Server only: fire a torpedo, or drop a mine, as if the button were pressed. */
+	void RequestFire(bool bMine);
+
 	// ---- Read by the HUD and the game mode -------------------------------
 	float GetForwardSpeed() const;
 	float GetSpeedKmh() const;
@@ -97,6 +111,7 @@ public:
 	/** How far out of the water the hull is, 0 afloat to 1 airborne. */
 	float GetAirborneFraction() const { return 1.f - FMath::Clamp(LastSubmersion * BuoyancyMultiplier, 0.f, 1.f); }
 	float GetTimeSinceHit() const;
+	float GetThrottleInput() const { return InputThrottle; }
 
 	/** Server time at which the server will revive this boat. */
 	float ReviveAtServerTime = 0.f;
@@ -202,6 +217,11 @@ public:
 	UPROPERTY(Config)
 	float FireCooldownSeconds = 0.9f;
 
+	/** Which boat model to use: RaceBoat (the Blender boat, painted in the
+	 *  player's colour) or Higgsfield (the generated SM_Boat). */
+	UPROPERTY(Config)
+	FString BoatModel = TEXT("RaceBoat");
+
 	// ---- Higgsfield model tuning ----------------------------------------
 	UPROPERTY(Config)
 	float CustomMeshYawOffset = 0.f;
@@ -231,6 +251,18 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void ServerDropMine();
+
+	/** The owner hit something hard; the server decides what it costs. */
+	UFUNCTION(Server, Unreliable)
+	void ServerReportImpact(FVector_NetQuantize Location, float Speed, ABoatPawn* OtherBoat);
+
+	/** Lets everyone else hear a crash the owner felt. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastImpact(FVector_NetQuantize Location, float Speed);
+
+	UFUNCTION()
+	void OnHullHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent,
+		FVector NormalImpulse, const FHitResult& Hit);
 
 	UFUNCTION()
 	void OnRep_NetState();
@@ -287,6 +319,14 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Boat")
 	TObjectPtr<UStaticMeshComponent> DamageMesh;
 
+	/** Flames licking out of the engine when the hull is badly hurt. */
+	UPROPERTY(VisibleAnywhere, Category = "Boat")
+	TObjectPtr<UPointLightComponent> FireLight;
+
+	/** Running light at night. */
+	UPROPERTY(VisibleAnywhere, Category = "Boat")
+	TObjectPtr<USpotLightComponent> Headlight;
+
 	UPROPERTY(VisibleAnywhere, Category = "Boat")
 	TObjectPtr<USpringArmComponent> SpringArm;
 
@@ -307,6 +347,13 @@ private:
 	void UpdateCosmetics(float DeltaSeconds);
 	void TryApplyPlayerColor();
 	void TryLoadCustomMesh();
+	void BuildEffects();
+	void UpdateEffects(float DeltaSeconds);
+	void UpdateAudio(float DeltaSeconds);
+	void EmitPuff(const FVector& Location, const FVector& Velocity, float Life, float StartSize, float EndSize,
+		const FLinearColor& Color, float Opacity, float Gravity, float Flat = 0.8f, bool bOnWater = false);
+	void ApplyWindAndShore();
+	void HandleImpact(const FVector& Location, float Speed, ABoatPawn* OtherBoat);
 	float GetWaveTime() const;
 	bool CanDrive() const;
 
@@ -330,6 +377,54 @@ private:
 	bool bHasNetState = false;
 	float TimeSinceNetUpdate = 0.f;
 	uint8 LastSeenTeleportCounter = 0;
+
+	// Effects: a pool of soft puffs for spray, wake and smoke.
+	struct FPuff
+	{
+		float Age = 0.f;
+		float Life = 0.f;
+		FVector Velocity = FVector::ZeroVector;
+		float StartSize = 1.f;
+		float EndSize = 1.f;
+		FLinearColor Color = FLinearColor::White;
+		float Opacity = 0.f;
+		float Gravity = 0.f;
+		/** Height as a fraction of width: 1 a ball of spray, 0.1 foam lying on the water. */
+		float Flat = 0.8f;
+		/** Foam rides the surface instead of flying. */
+		bool bOnWater = false;
+	};
+	TArray<FPuff> Puffs;
+	int32 NextPuff = 0;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> PuffMeshes;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> PuffMaterials;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> Flames;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> RoosterTail;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> RoosterMaterial;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> EngineAudio;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> WaterAudio;
+
+	float SprayAccumulator = 0.f;
+	float SmokeAccumulator = 0.f;
+	float EngineRevs = 0.f;
+	float AirTime = 0.f;
+	float CameraShake = 0.f;
+	float LastImpactTime = -10.f;
+	FVector LastVelocity = FVector::ZeroVector;
 
 	// Cosmetics and bookkeeping.
 	bool bPhysicsActive = false;

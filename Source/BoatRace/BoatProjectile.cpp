@@ -1,5 +1,7 @@
 #include "BoatProjectile.h"
 
+#include "BoatArt.h"
+#include "BoatAudio.h"
 #include "BoatPawn.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
@@ -8,7 +10,9 @@
 #include "OceanWaves.h"
 #include "RaceEnvironment.h"
 
+#include "Components/PointLightComponent.h"
 #include "Components/SphereComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -132,8 +136,8 @@ ABoatExplosion::ABoatExplosion()
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
 	SetReplicatingMovement(false);
-	// Long enough for the animation; the server also destroys it.
-	InitialLifeSpan = 2.f;
+	// Long enough for the smoke to clear; it also destroys itself.
+	InitialLifeSpan = 5.f;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 
@@ -148,6 +152,14 @@ ABoatExplosion::ABoatExplosion()
 	Ring->SetStaticMesh(SphereFinder.Object);
 	Ring->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Ring->SetCastShadow(false);
+	Ring->SetUsingAbsoluteScale(true);
+
+	Glare = CreateDefaultSubobject<UPointLightComponent>(TEXT("Glare"));
+	Glare->SetupAttachment(Flash);
+	Glare->SetUsingAbsoluteScale(true);
+	Glare->SetLightColor(FLinearColor(1.f, 0.6f, 0.25f));
+	Glare->SetIntensity(0.f);
+	Glare->SetCastShadows(false);
 }
 
 void ABoatExplosion::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -165,16 +177,132 @@ void ABoatExplosion::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// A translucent additive material if import_assets.sh built one, otherwise
-	// a plain bright sphere, which still reads as a blast.
+	// The core flash: additive if import_assets.sh built M_Explosion.
 	UMaterialInterface* BlastMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Higgsfield/M_Explosion.M_Explosion"), nullptr, LOAD_NoWarn | LOAD_Quiet);
 	if (BlastMaterial != nullptr)
 	{
 		Flash->SetMaterial(0, BlastMaterial);
-		Ring->SetMaterial(0, BlastMaterial);
 	}
-	TintMesh(Flash, FLinearColor(6.f, 2.2f, 0.3f));
-	TintMesh(Ring, FLinearColor(2.f, 2.f, 2.2f));
+	TintMesh(Flash, FLinearColor(9.f, 3.5f, 0.6f));
+	RingMaterial = BoatArt::SoftMaterial(Ring, FLinearColor(0.95f, 0.97f, 1.f), 0.7f);
+	Ring->SetMaterial(0, RingMaterial);
+
+	const UWorld* World = GetWorld();
+	if (World == nullptr || World->GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	BoatAudio::PlayAt(this, EBoatSound::Explosion, GetActorLocation(), 1.f, FMath::FRandRange(0.85f, 1.1f));
+	Glare->SetAttenuationRadius(BlastRadius * 5.f);
+
+	UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	UStaticMesh* Plank = BoatArt::Model(TEXT("Log"));
+	const float R = BlastRadius;
+
+	// Kinds: 0 flame, 1 water jet, 2 debris chunk, 3 smoke.
+	auto AddBit = [&](int32 Kind, const FVector& Start, const FVector& Velocity, float Delay, float Life, float Size)
+	{
+		FBit Bit;
+		Bit.Kind = Kind;
+		Bit.Start = Start;
+		Bit.Velocity = Velocity;
+		Bit.Delay = Delay;
+		Bit.Life = Life;
+		Bit.Size = Size;
+		Bit.Spin = FVector(FMath::FRandRange(-400.f, 400.f), FMath::FRandRange(-400.f, 400.f), FMath::FRandRange(-400.f, 400.f));
+
+		UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(this);
+		Mesh->SetStaticMesh(Kind == 2 ? (Plank ? Plank : Cube) : Sphere);
+		Mesh->SetupAttachment(Flash);
+		Mesh->SetUsingAbsoluteLocation(true);
+		Mesh->SetUsingAbsoluteRotation(true);
+		Mesh->SetUsingAbsoluteScale(true);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Mesh->SetCastShadow(Kind == 2);
+		Mesh->SetVisibility(false);
+		Mesh->RegisterComponent();
+		UMaterialInstanceDynamic* Material = nullptr;
+		if (Kind == 0)
+		{
+			Material = BoatArt::GlowMaterial(Mesh, FLinearColor(8.f, 2.6f, 0.3f));
+		}
+		else if (Kind == 2)
+		{
+			BoatArt::FLook Charred;
+			Charred.Brightness = 0.25f;
+			if (Plank)
+			{
+				BoatArt::Paint(Mesh, Charred);
+			}
+			else
+			{
+				Material = Mesh->CreateAndSetMaterialInstanceDynamic(0);
+				if (Material)
+				{
+					Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.05f, 0.04f, 0.03f));
+				}
+			}
+		}
+		else
+		{
+			Material = BoatArt::SoftMaterial(Mesh, Kind == 1 ? FLinearColor(0.92f, 0.96f, 1.f) : FLinearColor(0.05f, 0.05f, 0.05f), 0.f);
+		}
+		if (Material != nullptr && Kind != 2)
+		{
+			Mesh->SetMaterial(0, Material);
+		}
+		Bits.Add(Bit);
+		BitMeshes.Add(Mesh);
+		BitMaterials.Add(Material);
+	};
+
+	const FVector Origin = GetActorLocation();
+	for (int32 Index = 0; Index < 11; ++Index)
+	{
+		// Many smaller flames bursting outwards read as fire; one big one reads as a ball.
+		const FVector Out = FMath::VRand();
+		AddBit(0, Origin + FVector(Out.X, Out.Y, FMath::Abs(Out.Z)) * R * 0.15f,
+			FVector(Out.X, Out.Y, FMath::Abs(Out.Z) + 0.4f) * FMath::FRandRange(400.f, 900.f),
+			Index * 0.025f, FMath::FRandRange(0.45f, 0.85f), R * FMath::FRandRange(0.25f, 0.5f));
+	}
+	for (int32 Index = 0; Index < 7; ++Index)
+	{
+		const float Angle = Index * 0.9f + FMath::FRandRange(-0.3f, 0.3f);
+		const FVector Out(FMath::Cos(Angle), FMath::Sin(Angle), 0.f);
+		AddBit(1, Origin + Out * R * 0.15f, Out * FMath::FRandRange(200.f, 500.f) + FVector(0, 0, FMath::FRandRange(1600.f, 2600.f)),
+			0.02f, FMath::FRandRange(1.5f, 2.1f), R * FMath::FRandRange(0.22f, 0.35f));
+	}
+	for (int32 Index = 0; Index < 9; ++Index)
+	{
+		const FVector Out = FMath::VRand();
+		AddBit(2, Origin + FVector(0, 0, 80), FVector(Out.X, Out.Y, 0.f) * FMath::FRandRange(900.f, 2200.f) + FVector(0, 0, FMath::FRandRange(900.f, 2000.f)),
+			0.f, FMath::FRandRange(1.4f, 2.4f), FMath::FRandRange(0.12f, 0.3f));
+	}
+	for (int32 Index = 0; Index < 12; ++Index)
+	{
+		const FVector Offset = FMath::VRand() * R * 0.35f;
+		AddBit(3, Origin + FVector(Offset.X, Offset.Y, FMath::Abs(Offset.Z) + 150.f),
+			FVector(Offset.X, Offset.Y, 0.f) * 0.6f + FVector(0, 0, FMath::FRandRange(300.f, 650.f)),
+			0.25f + Index * 0.05f, FMath::FRandRange(2.4f, 3.6f), R * FMath::FRandRange(0.3f, 0.55f));
+	}
+
+	// Shake the camera of anyone close enough to feel it.
+	if (const APlayerController* Controller = World->GetFirstPlayerController())
+	{
+		if (const APawn* Viewer = Controller->GetPawn())
+		{
+			const float Distance = static_cast<float>(FVector::Dist(Viewer->GetActorLocation(), Origin));
+			if (Distance < R * 4.f)
+			{
+				// Through the boat's own hit feedback, which every boat already has.
+				if (ABoatPawn* Boat = const_cast<ABoatPawn*>(Cast<ABoatPawn>(Viewer)))
+				{
+					Boat->ShakeCamera(FMath::Clamp(1.2f - Distance / (R * 4.f), 0.2f, 1.f));
+				}
+			}
+		}
+	}
 }
 
 void ABoatExplosion::Tick(float DeltaSeconds)
@@ -183,16 +311,90 @@ void ABoatExplosion::Tick(float DeltaSeconds)
 
 	Age += DeltaSeconds;
 	const float Alpha = FMath::Clamp(Age / Lifetime, 0.f, 1.f);
+	const float Seconds = ServerNow(GetWorld());
 
-	// Swells fast, then collapses: the shape of a real blast seen from outside.
-	const float Swell = FMath::Sin(FMath::Clamp(Alpha * 2.4f, 0.f, 1.f) * HALF_PI);
-	const float Collapse = 1.f - FMath::Clamp((Alpha - 0.35f) / 0.65f, 0.f, 1.f);
-	const float FlashSize = (BlastRadius / 50.f) * Swell * Collapse;
-	Flash->SetWorldScale3D(FVector(FMath::Max(FlashSize, 0.01f)));
+	// The core flash: swells for a tenth of a second, then collapses.
+	const float FlashAlpha = FMath::Clamp(Age / 0.55f, 0.f, 1.f);
+	const float Swell = FMath::Sin(FMath::Clamp(FlashAlpha * 3.f, 0.f, 1.f) * HALF_PI);
+	const float Collapse = 1.f - FMath::Clamp((FlashAlpha - 0.25f) / 0.75f, 0.f, 1.f);
+	Flash->SetWorldScale3D(FVector(FMath::Max((BlastRadius / 50.f) * 0.8f * Swell * Collapse, 0.01f)));
+	Flash->SetVisibility(FlashAlpha < 1.f);
+	Glare->SetIntensity(FMath::Max(0.f, 1.f - Age / 0.6f) * 400000.f);
 
-	// The shockwave keeps spreading across the water as the flash dies.
-	const float RingSize = (BlastRadius / 50.f) * (0.4f + 2.2f * Alpha);
-	Ring->SetWorldScale3D(FVector(RingSize, RingSize, 0.04f));
+	// The shock ring runs out across the water and thins away.
+	const float RingAge = FMath::Clamp(Age / 1.4f, 0.f, 1.f);
+	const FVector Origin = GetActorLocation();
+	const float RingSize = (BlastRadius / 50.f) * (0.3f + 2.4f * FMath::Sqrt(RingAge));
+	Ring->SetWorldScale3D(FVector(RingSize, RingSize, 0.05f));
+	Ring->SetWorldLocation(FVector(Origin.X, Origin.Y, OceanWaves::GetHeight(FVector2D(Origin.X, Origin.Y), Seconds) + 10.0));
+	BoatArt::SetPuff(RingMaterial, FLinearColor(0.95f, 0.97f, 1.f), 0.7f * (1.f - RingAge));
+	Ring->SetVisibility(RingAge < 1.f);
+
+	for (int32 Index = 0; Index < Bits.Num(); ++Index)
+	{
+		const FBit& Bit = Bits[Index];
+		UStaticMeshComponent* Mesh = BitMeshes[Index];
+		const float Local = Age - Bit.Delay;
+		if (Mesh == nullptr)
+		{
+			continue;
+		}
+		if (Local < 0.f || Local > Bit.Life)
+		{
+			Mesh->SetVisibility(false);
+			continue;
+		}
+		Mesh->SetVisibility(true);
+		const float U = Local / Bit.Life;
+		switch (Bit.Kind)
+		{
+		case 0: // flame: bursts out, rises, turns from yellow to deep red and shrinks
+		{
+			const float Size = Bit.Size / 50.f * FMath::Sin(FMath::Min(U * 2.5f, 1.f) * HALF_PI) * (1.f - U * 0.6f);
+			Mesh->SetWorldLocation(Bit.Start + Bit.Velocity * Local);
+			Mesh->SetWorldScale3D(FVector(FMath::Max(Size, 0.01f)));
+			if (BitMaterials[Index])
+			{
+				BitMaterials[Index]->SetVectorParameterValue(TEXT("Color"),
+					FMath::Lerp(FLinearColor(14.f, 5.f, 0.6f), FLinearColor(4.f, 0.5f, 0.03f), FMath::Sqrt(U)) * (1.f - U * U));
+			}
+			break;
+		}
+		case 1: // water jet: shoots up as a tall column, falls back and spreads
+		{
+			const FVector Position = Bit.Start + Bit.Velocity * Local + FVector(0, 0, -490.f * Local * Local);
+			const float Rise = FMath::Max(static_cast<float>(Bit.Velocity.Z) - 980.f * Local, -400.f);
+			const float Stretch = 1.f + FMath::Clamp(Rise / 900.f, 0.f, 2.5f);
+			Mesh->SetWorldLocation(FVector(Position.X, Position.Y, FMath::Max(Position.Z, -50.0)));
+			Mesh->SetWorldScale3D(FVector(Bit.Size / 50.f * (0.6f + U), Bit.Size / 50.f * (0.6f + U), Bit.Size / 50.f * Stretch));
+			BoatArt::SetPuff(BitMaterials[Index], FLinearColor(0.92f, 0.96f, 1.f), 0.8f * (1.f - U));
+			break;
+		}
+		case 2: // debris: ballistic, tumbling, gone when it hits the water
+		{
+			const FVector Position = Bit.Start + Bit.Velocity * Local + FVector(0, 0, -490.f * Local * Local);
+			const float Surface = OceanWaves::GetHeight(FVector2D(Position.X, Position.Y), Seconds);
+			if (Position.Z < Surface && Local > 0.3f)
+			{
+				Mesh->SetVisibility(false);
+				break;
+			}
+			Mesh->SetWorldLocationAndRotation(Position, FRotator(Bit.Spin.X * Local, Bit.Spin.Y * Local, Bit.Spin.Z * Local));
+			Mesh->SetWorldScale3D(FVector(Bit.Size));
+			break;
+		}
+		default: // smoke: rolls upwards, growing and fading
+		{
+			const FVector Position = Bit.Start + Bit.Velocity * Local * (1.f - U * 0.4f);
+			const float Size = Bit.Size / 50.f * (0.5f + 1.3f * FMath::Sqrt(U));
+			Mesh->SetWorldLocation(Position);
+			Mesh->SetWorldScale3D(FVector(Size, Size, Size * 0.85f));
+			const float Grey = FMath::Lerp(0.03f, 0.18f, U);
+			BoatArt::SetPuff(BitMaterials[Index], FLinearColor(Grey, Grey, Grey), 0.6f * FMath::Min(U * 6.f, 1.f) * (1.f - U));
+			break;
+		}
+		}
+	}
 
 	if (Alpha >= 1.f)
 	{
@@ -256,8 +458,22 @@ void ABoatTorpedo::InitProjectile(ABoatPawn* Shooter)
 void ABoatTorpedo::BeginPlay()
 {
 	Super::BeginPlay();
-	TintMesh(Body, FLinearColor(0.75f, 0.75f, 0.8f));
-	TintMesh(Wake, FLinearColor(3.f, 3.f, 3.2f));
+	if (UStaticMesh* Model = BoatArt::Model(TEXT("Torpedo")))
+	{
+		// The model lies along X already; drawn half as big again so it reads at speed.
+		Body->SetStaticMesh(Model);
+		Body->SetRelativeRotation(FRotator::ZeroRotator);
+		Body->SetRelativeScale3D(FVector(BoatArt::UnitScale(Model, 0.5f) * 1.5f));
+		BoatArt::Paint(Body);
+	}
+	else
+	{
+		TintMesh(Body, FLinearColor(0.75f, 0.75f, 0.8f));
+	}
+	Wake->SetMaterial(0, BoatArt::SoftMaterial(Wake, FLinearColor(0.92f, 0.96f, 1.f), 0.7f));
+	Wake->SetRelativeScale3D(FVector(2.4f, 0.7f, 0.18f));
+	Wake->SetRelativeLocation(FVector(-260.f, 0.f, -15.f));
+	BoatAudio::PlayAt(this, EBoatSound::Torpedo, GetActorLocation(), 1.f, FMath::FRandRange(0.95f, 1.1f));
 	if (PreviousLocation.IsNearlyZero())
 	{
 		PreviousLocation = GetActorLocation();
@@ -375,8 +591,20 @@ void ABoatMine::InitProjectile(ABoatPawn* Shooter)
 void ABoatMine::BeginPlay()
 {
 	Super::BeginPlay();
-	TintMesh(Body, FLinearColor(0.08f, 0.08f, 0.09f));
-	TintMesh(Light, FLinearColor(4.f, 0.2f, 0.2f));
+	if (UStaticMesh* Model = BoatArt::Model(TEXT("Mine")))
+	{
+		Body->SetStaticMesh(Model);
+		Body->SetRelativeScale3D(FVector(BoatArt::UnitScale(Model, 1.5f) * 1.2f));
+		BoatArt::Paint(Body);
+		Light->SetRelativeLocation(FVector(0.f, 0.f, 80.f));
+		Light->SetRelativeScale3D(FVector(0.2f));
+	}
+	else
+	{
+		TintMesh(Body, FLinearColor(0.08f, 0.08f, 0.09f));
+	}
+	Light->SetMaterial(0, BoatArt::GlowMaterial(Light, FLinearColor(4.f, 0.2f, 0.2f)));
+	BoatAudio::PlayAt(this, EBoatSound::MineDrop, GetActorLocation(), 0.9f);
 }
 
 void ABoatMine::Tick(float DeltaSeconds)
@@ -397,7 +625,15 @@ void ABoatMine::Tick(float DeltaSeconds)
 	const bool bArmed = Age >= ArmSeconds;
 	const float BlinkRate = bArmed ? 7.f : 2.f;
 	const float Blink = 0.5f + 0.5f * FMath::Sin(Now * BlinkRate);
-	TintMesh(Light, FLinearColor(0.4f + 5.f * Blink, 0.15f, 0.15f));
+	if (UMaterialInstanceDynamic* Lamp = Cast<UMaterialInstanceDynamic>(Light->GetMaterial(0)))
+	{
+		Lamp->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.4f + 8.f * Blink, 0.15f, 0.1f));
+	}
+	if (bArmed && !bArmSounded)
+	{
+		bArmSounded = true;
+		BoatAudio::PlayAt(this, EBoatSound::MineArm, GetActorLocation(), 0.6f);
+	}
 
 	if (!HasAuthority() || !bArmed)
 	{
@@ -460,6 +696,26 @@ AWeaponCrate::AWeaponCrate()
 	Marker->SetCastShadow(false);
 }
 
+void AWeaponCrate::BeginPlay()
+{
+	Super::BeginPlay();
+	if (UStaticMesh* Model = BoatArt::Model(TEXT("Crate")))
+	{
+		// Undo the placeholder's flattening and draw the 1.8 m float-collared crate.
+		Body->SetStaticMesh(Model);
+		Body->SetRelativeScale3D(FVector(BoatArt::UnitScale(Model, 1.8f) * 1.15f));
+		BoatArt::Paint(Body);
+		Marker->SetRelativeLocation(FVector(0.f, 0.f, 260.f));
+	}
+	else
+	{
+		TintMesh(Body, FLinearColor(0.5f, 0.35f, 0.12f));
+	}
+	// A glowing yellow arrow above it, visible from the gate before.
+	Marker->SetRelativeRotation(FRotator(180.f, 0.f, 0.f));
+	Marker->SetMaterial(0, BoatArt::GlowMaterial(Marker, FLinearColor(4.f, 2.8f, 0.2f)));
+}
+
 void AWeaponCrate::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -493,8 +749,13 @@ void AWeaponCrate::Tick(float DeltaSeconds)
 
 	Body->SetVisibility(bAvailable);
 	Marker->SetVisibility(bAvailable);
-	TintMesh(Body, FLinearColor(0.5f, 0.35f, 0.12f));
-	TintMesh(Marker, FLinearColor(1.6f, 1.2f, 0.1f));
+	Marker->SetRelativeLocation(FVector(0.f, 0.f, 260.f + 40.f * FMath::Sin(Now * 3.f)));
+	if (bWasAvailable && !bAvailable)
+	{
+		// Every machine hears the pickup when the replicated flag flips.
+		BoatAudio::PlayAt(this, EBoatSound::Pickup, GetActorLocation(), 0.8f);
+	}
+	bWasAvailable = bAvailable;
 
 	if (!HasAuthority())
 	{

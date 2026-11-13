@@ -14,6 +14,7 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ABoatRaceGameState, RaceStartTime);
 	DOREPLIFETIME(ABoatRaceGameState, RaceEndTime);
 	DOREPLIFETIME(ABoatRaceGameState, TotalLaps);
+	DOREPLIFETIME(ABoatRaceGameState, WeatherIndex);
 }
 
 void ABoatRaceGameState::BeginPlay()

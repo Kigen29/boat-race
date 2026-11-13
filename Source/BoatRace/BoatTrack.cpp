@@ -208,6 +208,23 @@ const TArray<FBoatBarge>& BoatTrack::GetBarges()
 	return Barges;
 }
 
+const TArray<FBoatLog>& BoatTrack::GetLogs()
+{
+	static const TArray<FBoatLog> Logs = []()
+	{
+		TArray<FBoatLog> Result;
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Logs); ++Index)
+		{
+			FBoatLog Log;
+			Log.Center = FromMetres(BoatTrackData::Logs[Index][0], BoatTrackData::Logs[Index][1]);
+			Log.Yaw = static_cast<float>(BoatTrackData::Logs[Index][2]);
+			Result.Add(Log);
+		}
+		return Result;
+	}();
+	return Logs;
+}
+
 FVector2D BoatTrack::GetBargeLocation(const FBoatBarge& Barge, float Seconds)
 {
 	// A triangle wave over the period: out, then back, for ever. Derived from

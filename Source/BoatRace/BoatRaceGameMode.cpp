@@ -6,8 +6,10 @@
 #include "BoatRaceHUD.h"
 #include "BoatRacePlayerController.h"
 #include "BoatRacePlayerState.h"
+#include "BoatRivalController.h"
 #include "BoatTrack.h"
 
+#include "Misc/CommandLine.h"
 #include "Engine/World.h"
 #include "GameFramework/OnlineReplStructs.h"
 #include "GameFramework/PlayerController.h"
@@ -55,7 +57,117 @@ int32 ABoatRaceGameMode::FindFreeSlot() const
 			return Slot;
 		}
 	}
-	return 0;
+	return -1;
+}
+
+void ABoatRaceGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+
+	FString Choice = Weather;
+	FParse::Value(FCommandLine::Get(), TEXT("Weather="), Choice);
+	if (ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>())
+	{
+		RaceState->SetWeather(RaceWeather::Parse(Choice));
+		UE_LOG(LogBoatRace, Log, TEXT("Weather: %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
+	}
+}
+
+void ABoatRaceGameMode::RequestWeatherChange(APlayerController* Requester, int32 Step)
+{
+	ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>();
+	if (RaceState == nullptr || Requester == nullptr)
+	{
+		return;
+	}
+	const bool bHost = Requester->IsLocalController() || GetNetMode() == NM_DedicatedServer;
+	if (!bHost || RaceState->RaceState == ERaceState::Countdown || RaceState->RaceState == ERaceState::Racing)
+	{
+		return; // the weather is the host's call, and only between races
+	}
+	RaceState->SetWeather(RaceWeather::FromIndex(static_cast<int32>(RaceState->GetWeather()) + Step));
+	UE_LOG(LogBoatRace, Log, TEXT("Weather changed to %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
+}
+
+void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
+{
+	RemoveRivals(0);
+	if (!bFillWithRivals)
+	{
+		return;
+	}
+	static const TCHAR* const Names[] = { TEXT("Kestrel"), TEXT("Marlin"), TEXT("Barracuda"), TEXT("Osprey") };
+	UWorld* World = GetWorld();
+	for (int32 Attempt = 0; Attempt < BoatTrack::MaxPlayers; ++Attempt)
+	{
+		const int32 Slot = FindFreeSlot();
+		if (Slot < 0 || World == nullptr)
+		{
+			break;
+		}
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ABoatRivalController* Rival = World->SpawnActor<ABoatRivalController>(ABoatRivalController::StaticClass(), FTransform::Identity, Params);
+		ABoatRacePlayerState* Racer = Rival ? Rival->GetPlayerState<ABoatRacePlayerState>() : nullptr;
+		if (Racer == nullptr)
+		{
+			if (Rival != nullptr)
+			{
+				Rival->Destroy();
+			}
+			break;
+		}
+		Racer->SlotIndex = Slot;
+		Racer->SetIsABot(true);
+		Racer->SetPlayerName(Names[Slot % UE_ARRAY_COUNT(Names)]);
+		Racer->ResetRace();
+		// Spread the field: one a touch quicker, one a touch slower.
+		Rival->Skill = FMath::Clamp(RivalSkill + (Slot - 1.5f) * 0.03f, 0.5f, 1.f);
+		Rival->LaneOffset = (Slot % 2 ? 1.f : -1.f) * (6.f + 4.f * (Slot / 2));
+		RestartPlayerAtTransform(Rival, BoatTrack::GetGridTransform(Slot));
+		Rivals.Add(Rival);
+	}
+	if (Rivals.Num() > 0)
+	{
+		UE_LOG(LogBoatRace, Log, TEXT("%d computer rival(s) on the grid."), Rivals.Num());
+	}
+}
+
+void ABoatRaceGameMode::RemoveRivals(int32 Keep)
+{
+	while (Rivals.Num() > Keep)
+	{
+		ABoatRivalController* Rival = Rivals.Pop();
+		if (Rival == nullptr)
+		{
+			continue;
+		}
+		if (APawn* Boat = Rival->GetPawn())
+		{
+			Boat->Destroy();
+		}
+		Rival->Destroy();
+	}
+}
+
+void ABoatRaceGameMode::Logout(AController* Exiting)
+{
+	Super::Logout(Exiting);
+	Rivals.RemoveAll([Exiting](const TObjectPtr<ABoatRivalController>& Rival) { return Rival == Exiting; });
+}
+
+void ABoatRaceGameMode::ResetBoatToLastGate(ABoatPawn* Boat)
+{
+	const ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>();
+	const ABoatRacePlayerState* Racer = Boat ? Boat->GetPlayerState<ABoatRacePlayerState>() : nullptr;
+	if (RaceState == nullptr || Racer == nullptr)
+	{
+		return;
+	}
+	const FTransform Target = (RaceState->RaceState == ERaceState::Racing && Racer->GatesPassed > 0)
+		? BoatTrack::GetGateResetTransform(Racer->NextGate - 1)
+		: BoatTrack::GetGridTransform(Racer->SlotIndex);
+	Boat->TeleportBoat(Target.GetLocation(), static_cast<float>(Target.Rotator().Yaw));
 }
 
 void ABoatRaceGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
@@ -72,7 +184,12 @@ void ABoatRaceGameMode::HandleStartingNewPlayer_Implementation(APlayerController
 	{
 		if (RacePlayer->SlotIndex < 0)
 		{
-			RacePlayer->SlotIndex = FindFreeSlot();
+			// A person always beats a computer rival to a seat.
+			if (FindFreeSlot() < 0 && Rivals.Num() > 0)
+			{
+				RemoveRivals(Rivals.Num() - 1);
+			}
+			RacePlayer->SlotIndex = FMath::Max(FindFreeSlot(), 0);
 		}
 		Slot = RacePlayer->SlotIndex;
 		UE_LOG(LogBoatRace, Log, TEXT("%s joined in slot %d."), *RacePlayer->GetPlayerName(), Slot + 1);
@@ -112,6 +229,7 @@ void ABoatRaceGameMode::Tick(float DeltaSeconds)
 		if (RaceState->GetServerNow() >= RaceState->StateEndTime)
 		{
 			RaceState->RaceState = ERaceState::Lobby;
+			RemoveRivals(0);
 		}
 		break;
 
@@ -216,6 +334,8 @@ void ABoatRaceGameMode::StartCountdown(ABoatRaceGameState* RaceState)
 			Boat->Revive(0.f);
 		}
 	}
+
+	SpawnRivals(RaceState);
 
 	RaceState->TotalLaps = FMath::Clamp(TotalLaps, 1, 20);
 	RaceState->RaceEndTime = 0.f;

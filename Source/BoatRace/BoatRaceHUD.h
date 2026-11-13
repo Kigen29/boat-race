@@ -60,6 +60,13 @@ private:
 	void DrawGateCompass(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale);
 	void DrawNameTags(float Scale);
 	void DrawDamageEdge(const ABoatPawn* Boat, float Width, float Height);
+	void DrawStartLights(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale);
+	void DrawBanner(float Width, float Height, float Scale);
+	void DrawWrongWay(const ABoatPawn* Boat, const ABoatRacePlayerState* Me, float Width, float Height, float Scale);
+
+	/** Sounds and banners for the moments of a race: lights, laps, places, the flag. */
+	void UpdateRaceCues(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings);
+	void ShowBanner(const FString& Text, const FLinearColor& Color, float Seconds = 2.5f);
 
 	/** Text with a drop shadow. Align: 0 left, 0.5 centred, 1 right of X. */
 	void DrawLabel(const FString& Text, float X, float Y, float Size, const FLinearColor& Color,
@@ -75,6 +82,16 @@ private:
 	TObjectPtr<UTexture2D> TitleTexture;
 
 	/** Circuit bounds, worked out once for the map. */
+	FString BannerText;
+	FLinearColor BannerColor = FLinearColor::White;
+	float BannerUntil = 0.f;
+	int32 SeenLights = -1;
+	int32 SeenLaps = -1;
+	int32 SeenPosition = 0;
+	int32 SeenState = -1;
+	bool bSeenFinish = false;
+	float WrongWayTime = 0.f;
+
 	FVector2D MapMin = FVector2D::ZeroVector;
 	FVector2D MapMax = FVector2D::ZeroVector;
 	bool bMapBoundsReady = false;

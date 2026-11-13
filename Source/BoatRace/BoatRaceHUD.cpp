@@ -1,5 +1,6 @@
 #include "BoatRaceHUD.h"
 
+#include "BoatAudio.h"
 #include "BoatPawn.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
@@ -198,6 +199,7 @@ void ABoatRaceHUD::DrawHUD()
 
 	TArray<FStanding> Standings;
 	BuildStandings(Standings);
+	UpdateRaceCues(RaceState, Standings);
 
 	const bool bOnMenu = GetNetMode() == NM_Standalone && RaceState->RaceState == ERaceState::Lobby;
 	if (bOnMenu)
@@ -228,6 +230,7 @@ void ABoatRaceHUD::DrawHUD()
 	}
 
 	DrawKillFeed(RaceState, Width, Height, Scale);
+	DrawBanner(Width, Height, Scale);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +249,7 @@ void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 	const int32 RaceRows = FMath::Clamp(Races.Num(), 1, BoatTrack::MaxPlayers);
 
 	const float PanelWidth = 820.f * Scale;
-	const float PanelHeight = (520.f + 60.f + 44.f * RaceRows) * Scale;
+	const float PanelHeight = (520.f + 120.f + 44.f * RaceRows) * Scale;
 	const float PanelX = (Width - PanelWidth) * 0.5f;
 	const float PanelY = Height * 0.5f - PanelHeight * 0.5f;
 	DrawRect(Panel, PanelX, PanelY, PanelWidth, PanelHeight);
@@ -297,11 +300,17 @@ void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 	Y += 48.f * Scale;
 	DrawLabel(TEXT("J        Join by typing an address"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
 	Y += 48.f * Scale;
-	DrawLabel(TEXT("ENTER    Solo practice race"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
-	Y += 72.f * Scale;
+	DrawLabel(TEXT("ENTER    Solo race against three rivals"), CentreX, Y, 1.6f * Scale, Ink, 0.5f);
+	Y += 48.f * Scale;
+	if (const ABoatRaceGameState* RaceState = GetWorld()->GetGameState<ABoatRaceGameState>())
+	{
+		DrawLabel(FString::Printf(TEXT("TAB      Weather:  %s"), RaceWeather::Get(RaceState->GetWeather()).Name),
+			CentreX, Y, 1.6f * Scale, Accent, 0.5f);
+	}
+	Y += 64.f * Scale;
 	DrawLabel(TEXT("W / S throttle     A / D steer     SPACE torpedo     Q mine"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
 	Y += 34.f * Scale;
-	DrawLabel(TEXT("R  back to the last gate          Gamepad: triggers, stick, A, X"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
+	DrawLabel(TEXT("R  back to the last gate     M  music on/off     Gamepad: triggers, stick, A, X"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
 }
 
 void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings, float Width, float Height, float Scale)
@@ -319,6 +328,16 @@ void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<F
 		CentreX, Y, 1.6f * Scale, Accent, 0.5f);
 	Y += 42.f * Scale;
 	DrawLabel(TEXT("Warm up on the course.   L  leave"), CentreX, Y, 1.2f * Scale, Dim, 0.5f);
+	Y += 40.f * Scale;
+	DrawLabel(FString::Printf(TEXT("Weather: %s%s"), RaceWeather::Get(RaceState->GetWeather()).Name,
+		bHost ? TEXT("      (TAB to change)") : TEXT("")), CentreX, Y, 1.4f * Scale, Ink, 0.5f);
+	Y += 38.f * Scale;
+	if (Standings.Num() < BoatTrack::MaxPlayers)
+	{
+		DrawLabel(FString::Printf(TEXT("%d empty seat%s will be filled by computer rivals"),
+			BoatTrack::MaxPlayers - Standings.Num(), BoatTrack::MaxPlayers - Standings.Num() == 1 ? TEXT("") : TEXT("s")),
+			CentreX, Y, 1.2f * Scale, Dim, 0.5f);
+	}
 
 	float ListY = 55.f * Scale;
 	const float ListX = 44.f * Scale;
@@ -340,11 +359,158 @@ void ABoatRaceHUD::DrawLobby(const ABoatRaceGameState* RaceState, const TArray<F
 
 void ABoatRaceHUD::DrawCountdown(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale)
 {
+	DrawStartLights(RaceState, Width, Height, Scale);
+	DrawLabel(FString::Printf(TEXT("%d LAPS   %s"), RaceState->TotalLaps, RaceWeather::Get(RaceState->GetWeather()).Name),
+		Width * 0.5f, Height * 0.2f + 150.f * Scale, 1.7f * Scale, Ink, 0.5f);
+}
+
+void ABoatRaceHUD::DrawStartLights(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale)
+{
+	// Five red lights come on one a second; when they all go out, go.
 	const float Remaining = RaceState->StateEndTime - RaceState->GetServerNow();
-	const int32 Number = FMath::Max(FMath::CeilToInt(Remaining), 1);
-	DrawLabel(FString::FromInt(Number), Width * 0.5f, Height * 0.24f, 9.f * Scale, Accent, 0.5f, true);
-	DrawLabel(FString::Printf(TEXT("%d LAPS"), RaceState->TotalLaps),
-		Width * 0.5f, Height * 0.24f + 230.f * Scale, 1.7f * Scale, Ink, 0.5f);
+	const int32 Lit = FMath::Clamp(5 - FMath::CeilToInt(Remaining) + 1, 0, 5);
+	const float Lamp = 64.f * Scale;
+	const float Gap = 22.f * Scale;
+	const float Total = 5.f * Lamp + 4.f * Gap;
+	const float X0 = (Width - Total) * 0.5f;
+	const float Y0 = Height * 0.2f;
+	DrawRect(FLinearColor(0.02f, 0.02f, 0.025f, 0.9f), X0 - 18.f * Scale, Y0 - 18.f * Scale, Total + 36.f * Scale, Lamp * 2.f + Gap + 36.f * Scale);
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		const float X = X0 + Index * (Lamp + Gap);
+		for (int32 Row = 0; Row < 2; ++Row)
+		{
+			const FLinearColor Colour = Index < Lit ? FLinearColor(1.f, 0.06f, 0.04f, 1.f) : FLinearColor(0.16f, 0.03f, 0.03f, 1.f);
+			DrawRect(Colour, X + 6.f * Scale, Y0 + Row * (Lamp + Gap) + 6.f * Scale, Lamp - 12.f * Scale, Lamp - 12.f * Scale);
+			if (Index < Lit)
+			{
+				// A soft halo so a lit lamp glows rather than just being red.
+				DrawRect(FLinearColor(1.f, 0.2f, 0.1f, 0.25f), X - 4.f * Scale, Y0 + Row * (Lamp + Gap) - 4.f * Scale, Lamp + 8.f * Scale, Lamp + 8.f * Scale);
+			}
+		}
+	}
+}
+
+void ABoatRaceHUD::ShowBanner(const FString& Text, const FLinearColor& Color, float Seconds)
+{
+	BannerText = Text;
+	BannerColor = Color;
+	BannerUntil = static_cast<float>(GetWorld()->GetRealTimeSeconds()) + Seconds;
+}
+
+void ABoatRaceHUD::DrawBanner(float Width, float Height, float Scale)
+{
+	const float Now = static_cast<float>(GetWorld()->GetRealTimeSeconds());
+	if (BannerText.IsEmpty() || Now > BannerUntil)
+	{
+		return;
+	}
+	const float Fade = FMath::Clamp((BannerUntil - Now) / 0.4f, 0.f, 1.f);
+	const float Y = Height * 0.32f;
+	DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f * Fade), 0.f, Y - 12.f * Scale, Width, 110.f * Scale);
+	FLinearColor Colour = BannerColor;
+	Colour.A = Fade;
+	DrawLabel(BannerText, Width * 0.5f, Y, 3.f * Scale, Colour, 0.5f, true);
+}
+
+void ABoatRaceHUD::DrawWrongWay(const ABoatPawn* Boat, const ABoatRacePlayerState* Me, float Width, float Height, float Scale)
+{
+	if (Boat == nullptr || Me == nullptr || Me->bFinished)
+	{
+		return;
+	}
+	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
+	if (!Gates.IsValidIndex(Me->NextGate))
+	{
+		return;
+	}
+	// Heading away from the next gate at speed for more than a moment.
+	const FVector Location = Boat->GetActorLocation();
+	const FVector2D ToGate = (Gates[Me->NextGate].Center - FVector2D(Location.X, Location.Y)).GetSafeNormal();
+	const FVector Forward = Boat->GetActorForwardVector();
+	const bool bWrong = FVector2D::DotProduct(ToGate, FVector2D(Forward.X, Forward.Y).GetSafeNormal()) < -0.35f && Boat->GetSpeedKmh() > 15.f;
+	WrongWayTime = bWrong ? WrongWayTime + GetWorld()->GetDeltaSeconds() : 0.f;
+	if (WrongWayTime > 1.2f && FMath::Fmod(WrongWayTime, 0.8f) < 0.55f)
+	{
+		DrawLabel(TEXT("WRONG WAY"), Width * 0.5f, Height * 0.42f, 3.4f * Scale, Bad, 0.5f, true);
+	}
+}
+
+void ABoatRaceHUD::UpdateRaceCues(const ABoatRaceGameState* RaceState, const TArray<FStanding>& Standings)
+{
+	const APlayerController* Controller = GetOwningPlayerController();
+	const ABoatRacePlayerState* Me = Controller ? Controller->GetPlayerState<ABoatRacePlayerState>() : nullptr;
+	const int32 State = static_cast<int32>(RaceState->RaceState);
+
+	if (State != SeenState)
+	{
+		if (RaceState->RaceState == ERaceState::Racing)
+		{
+			BoatAudio::Play2D(this, EBoatSound::Go, 0.8f);
+			ShowBanner(TEXT("GO!  GO!  GO!"), Good, 1.4f);
+		}
+		else if (RaceState->RaceState == ERaceState::Results)
+		{
+			BoatAudio::Play2D(this, EBoatSound::Fanfare, 0.7f);
+		}
+		else if (RaceState->RaceState == ERaceState::Countdown)
+		{
+			SeenLights = 0;
+			SeenLaps = -1;
+			SeenPosition = 0;
+			bSeenFinish = false;
+		}
+		SeenState = State;
+	}
+
+	if (RaceState->RaceState == ERaceState::Countdown)
+	{
+		const int32 Lit = FMath::Clamp(5 - FMath::CeilToInt(RaceState->StateEndTime - RaceState->GetServerNow()) + 1, 0, 5);
+		if (Lit > SeenLights)
+		{
+			BoatAudio::Play2D(this, EBoatSound::Beep, 0.7f);
+			SeenLights = Lit;
+		}
+		return;
+	}
+	if (RaceState->RaceState != ERaceState::Racing || Me == nullptr)
+	{
+		return;
+	}
+
+	if (Me->LapsCompleted != SeenLaps)
+	{
+		if (SeenLaps >= 0 && Me->LapsCompleted > SeenLaps && !Me->bFinished)
+		{
+			const bool bFinal = Me->LapsCompleted == RaceState->TotalLaps - 1;
+			BoatAudio::Play2D(this, bFinal ? EBoatSound::FinalLap : EBoatSound::LapChime, 0.75f);
+			ShowBanner(bFinal ? FString(TEXT("FINAL LAP")) : FString::Printf(TEXT("LAP %d / %d"), Me->LapsCompleted + 1, RaceState->TotalLaps),
+				bFinal ? Accent : Ink);
+		}
+		SeenLaps = Me->LapsCompleted;
+	}
+	if (Me->bFinished && !bSeenFinish)
+	{
+		bSeenFinish = true;
+		BoatAudio::Play2D(this, Me->FinishPosition == 1 ? EBoatSound::Fanfare : EBoatSound::LapChime, 0.8f);
+		ShowBanner(Me->FinishPosition == 1 ? FString(TEXT("YOU WIN!")) : FString::Printf(TEXT("%s PLACE"), *Ordinal(Me->FinishPosition).ToUpper()),
+			Me->FinishPosition == 1 ? Accent : Ink, 4.f);
+	}
+
+	int32 Position = 0;
+	for (int32 Index = 0; Index < Standings.Num(); ++Index)
+	{
+		if (Standings[Index].Player == Me)
+		{
+			Position = Index + 1;
+		}
+	}
+	if (SeenPosition > 0 && Position > 0 && Position != SeenPosition && RaceState->GetRaceTime() > 4.f && !Me->bFinished)
+	{
+		ShowBanner(FString::Printf(TEXT("P%d  %s"), Position, Position < SeenPosition ? TEXT("UP") : TEXT("DOWN")),
+			Position < SeenPosition ? Good : Bad, 1.6f);
+	}
+	SeenPosition = Position;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,10 +528,6 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	DrawMiniMap(Standings, Me, Width, Height, Scale);
 	DrawDamageEdge(MyBoat, Width, Height);
 
-	if (RaceState->RaceState == ERaceState::Racing && RaceState->GetRaceTime() < 1.3f)
-	{
-		DrawLabel(TEXT("GO!"), Width * 0.5f, Height * 0.24f, 9.f * Scale, Good, 0.5f, true);
-	}
 
 	if (Me == nullptr)
 	{
@@ -386,6 +548,7 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	else if (MyBoat != nullptr)
 	{
 		DrawGateCompass(MyBoat, Me, Width, Scale);
+		DrawWrongWay(MyBoat, Me, Width, Height, Scale);
 	}
 }
 
