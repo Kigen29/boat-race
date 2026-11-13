@@ -53,8 +53,28 @@ another network via Tailscale or ZeroTier.
 | Disk space | ~60 GB (the engine) | ~1 GB |
 
 Integrated Intel or AMD graphics work on the low preset, which `setup.sh`
-picks automatically. A Windows or Mac copy has to be packaged on a Windows or
-Mac machine; Linux can't build one.
+picks automatically.
+
+## Friends on Windows
+
+Windows and Linux players race together on the same Wi-Fi. The Windows copy
+has to be built once on a Windows PC, because Unreal cannot make Windows games
+on Linux:
+
+1. On a Windows PC with **Unreal Engine 5.9** (the same version as the Linux
+   host, from the Epic Games Launcher) and **Visual Studio 2022** with the
+   *Game development with C++* workload: clone the repository and double-click
+   `Scripts\package_windows.bat`. It compiles, imports the models, packages
+   and leaves `dist\BoatRace-Windows.zip` (about 30–60 minutes the first time).
+2. Copy that zip into `dist/` on the Linux host and run `Scripts/share.sh`.
+   It now also prints a web address.
+3. Windows friends open that address in a browser, download the zip,
+   *Extract All*, and double-click **Play Boat Race.bat**. When Windows asks
+   about the firewall, allow *Private networks*; then the host's race is on
+   their menu like everyone else's.
+
+Rebuild the Windows copy whenever the game changes, or the versions will not
+match and Windows players cannot join.
 
 ## Controls
 
@@ -105,4 +125,5 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 | "This race is full" | Four are already in |
 | Boats jitter or rubber-band | Poor connection to the host. The host should be close to the router, or wired |
 | The host leaves | The race ends for everyone. The host should be the most stable machine |
+| A Windows player cannot see or join races | They did not allow the game through Windows Firewall. Windows Security > Firewall > *Allow an app* > tick BoatRace for Private networks |
 | One player sees different weather or a different sea | They have an older copy. Run `package.sh` and `share.sh` again, and everyone re-pastes the line |

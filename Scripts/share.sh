@@ -3,6 +3,10 @@
 # dist/BoatRace-Linux.tar.gz (make that with Scripts/package.sh), then each
 # friend pastes the one line it prints into a terminal. Ctrl+C stops sharing.
 #
+# If dist/BoatRace-Windows.zip is there too (built on a Windows PC with
+# Scripts/package_windows.bat), Windows friends open the printed address in a
+# browser and download it from there.
+#
 # Why a tiny web server rather than a USB stick or a chat upload: the package
 # is ~420 MB, every Ubuntu machine already has python3 and wget, and the line
 # a friend pastes also installs the game and gives it an icon, so there is
@@ -31,6 +35,8 @@ fi
 SERVE="$(mktemp -d)"
 trap 'rm -rf "$SERVE"' EXIT
 ln -s "$PACKAGE" "$SERVE/BoatRace-Linux.tar.gz"
+WINDOWS="$DIST/BoatRace-Windows.zip"
+[ -f "$WINDOWS" ] && ln -s "$WINDOWS" "$SERVE/BoatRace-Windows.zip"
 
 # What a friend's machine runs. Kept to tools a stock Ubuntu has.
 cat > "$SERVE/install.sh" <<INSTALL
@@ -62,11 +68,37 @@ echo "Installed. Open 'Boat Race' from your apps (or run \$GAME/BoatRace.sh)."
 echo "On the menu, press the number next to your friend's race to join."
 INSTALL
 
+# A page for anyone who opens the address in a browser, Windows friends above all.
+{
+	echo '<!doctype html><meta charset="utf-8"><title>Boat Race</title>'
+	echo '<body style="font-family:sans-serif;max-width:40em;margin:3em auto;line-height:1.5">'
+	echo '<h1>Boat Race</h1>'
+	if [ -f "$WINDOWS" ]; then
+		echo '<h2>Windows</h2><p><a href="BoatRace-Windows.zip"><b>Download BoatRace-Windows.zip</b></a>'
+		echo "($(( $(stat -L -c %s "$WINDOWS") / 1048576 )) MB). Right-click it, <i>Extract All</i>, then open the folder and"
+		echo 'double-click <b>Play Boat Race.bat</b>. When Windows asks about the firewall, allow <i>Private networks</i>.</p>'
+	else
+		echo '<h2>Windows</h2><p>No Windows copy yet: it has to be built on a Windows PC with Scripts/package_windows.bat.</p>'
+	fi
+	echo '<h2>Linux</h2><p>Open a terminal and paste:</p>'
+	echo "<pre>wget -qO- http://$ADDRESS:$PORT/install.sh | bash</pre>"
+	echo '<p>Then on the menu, press the number next to your friend'"'"'s race.</p></body>'
+} > "$SERVE/index.html"
+
 echo
-echo "Sharing Boat Race on your Wi-Fi. Each friend opens a terminal and pastes:"
+echo "Sharing Boat Race on your Wi-Fi. Each Linux friend opens a terminal and pastes:"
 echo
 echo "    wget -qO- http://$ADDRESS:$PORT/install.sh | bash"
 echo
+if [ -f "$WINDOWS" ]; then
+	echo "Windows friends open this in a browser and download the zip:"
+	echo
+	echo "    http://$ADDRESS:$PORT"
+	echo
+else
+	echo "(No Windows copy in dist/. Build one on a Windows PC with Scripts/package_windows.bat.)"
+	echo
+fi
 echo "Leave this running until everyone has it, then press Ctrl+C."
 echo
 cd "$SERVE"

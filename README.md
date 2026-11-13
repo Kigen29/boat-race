@@ -47,7 +47,7 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 
 | | |
 |---|---|
-| **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: sharing the game over Wi-Fi in one line, joining from the menu list, and what to do when a join fails |
+| **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: sharing the game over Wi-Fi in one line, building the Windows copy so Windows and Linux friends race together, joining from the menu list, and what to do when a join fails |
 | [PLAN.md](PLAN.md) | What was built and why, stage by stage, with the real-world powerboat racing it borrows from |
 | [HIGGSFIELD_ASSETS.md](HIGGSFIELD_ASSETS.md) | The generated art: which models, the exact prompts, what each cost, and how to replace any of it |
 | [CLAUDE.md](CLAUDE.md) | Working context for an AI coding agent: current state, design rules, verification scripts |
