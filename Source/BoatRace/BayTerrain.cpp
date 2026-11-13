@@ -14,15 +14,15 @@
 
 namespace
 {
-	const int32 LinePoints = UE_ARRAY_COUNT(BoatTrackData::RacingLine);
+	const int32 BayLinePoints = UE_ARRAY_COUNT(BoatTrackData::RacingLine);
 	/** Middle of the circuit, metres: the land is laid out around it. */
-	const double CentreX = 30.0;
-	const double CentreY = -75.0;
+	const double BayCentreX = 30.0;
+	const double BayCentreY = -75.0;
 	/** The detailed, solid part of the land; beyond it, distant hills. */
-	const double InnerHalf = 840.0;
-	const double InnerCell = 10.0;
-	const double OuterHalf = 2580.0;
-	const double OuterCell = 60.0;
+	const double BayInnerHalf = 840.0;
+	const double BayInnerCell = 10.0;
+	const double BayOuterHalf = 2580.0;
+	const double BayOuterCell = 60.0;
 
 	double Hash2(int64 X, int64 Y, uint32 Seed)
 	{
@@ -57,9 +57,9 @@ namespace
 	{
 		double Best = -1.e18;
 		OutCliff = 0.0;
-		for (int32 Index = 0; Index < LinePoints; ++Index)
+		for (int32 Index = 0; Index < BayLinePoints; ++Index)
 		{
-			const int32 Next = (Index + 1) % LinePoints;
+			const int32 Next = (Index + 1) % BayLinePoints;
 			const double AX = BoatTrackData::RacingLine[Index][0], AY = BoatTrackData::RacingLine[Index][1];
 			const double BX = BoatTrackData::RacingLine[Next][0], BY = BoatTrackData::RacingLine[Next][1];
 			const double DX = BX - AX, DY = BY - AY;
@@ -122,7 +122,7 @@ namespace
 			+ 9.0 * N2 * SmoothStep(10.0, 120.0, Up);
 
 		// A ring of mountains closes the bay in, so the horizon is hills.
-		const double R = FMath::Sqrt(FMath::Square((X - CentreX) / 1.15) + FMath::Square(Y - CentreY));
+		const double R = FMath::Sqrt(FMath::Square((X - BayCentreX) / 1.15) + FMath::Square(Y - BayCentreY));
 		const double Mountains = 240.0 * SmoothStep(950.0, 1900.0, R) * (0.55 + 0.45 * (0.5 + 0.5 * N3))
 			+ 60.0 * SmoothStep(1500.0, 2300.0, R) * N1;
 
@@ -228,18 +228,18 @@ void ABayTerrain::BeginPlay()
 
 	// The racing area in detail, solid; the distant hills coarse and visual only.
 	FGrid Inner;
-	Inner.Cells = static_cast<int32>(2.0 * InnerHalf / InnerCell);
-	Inner.Origin[0] = CentreX - InnerHalf;
-	Inner.Origin[1] = CentreY - InnerHalf;
-	Inner.CellMetres = InnerCell;
+	Inner.Cells = static_cast<int32>(2.0 * BayInnerHalf / BayInnerCell);
+	Inner.Origin[0] = BayCentreX - BayInnerHalf;
+	Inner.Origin[1] = BayCentreY - BayInnerHalf;
+	Inner.CellMetres = BayInnerCell;
 	BuildSection(0, Inner, true);
 
 	FGrid Outer;
-	Outer.Cells = static_cast<int32>(2.0 * OuterHalf / OuterCell);
-	Outer.Origin[0] = CentreX - OuterHalf;
-	Outer.Origin[1] = CentreY - OuterHalf;
-	Outer.CellMetres = OuterCell;
-	Outer.HoleHalf = InnerHalf;
+	Outer.Cells = static_cast<int32>(2.0 * BayOuterHalf / BayOuterCell);
+	Outer.Origin[0] = BayCentreX - BayOuterHalf;
+	Outer.Origin[1] = BayCentreY - BayOuterHalf;
+	Outer.CellMetres = BayOuterCell;
+	Outer.HoleHalf = BayInnerHalf;
 	BuildSection(1, Outer, false);
 
 	UMaterialInterface* LandMaterial = BoatArt::Material(TEXT("M_VertexColor"));
@@ -299,8 +299,8 @@ void ABayTerrain::BuildSection(int32 Section, const FGrid& Grid, bool bCollision
 		{
 			if (Grid.HoleHalf > 0.0)
 			{
-				const double X0 = Grid.Origin[0] + Column * Step - CentreX, X1 = X0 + Step;
-				const double Y0 = Grid.Origin[1] + Row * Step - CentreY, Y1 = Y0 + Step;
+				const double X0 = Grid.Origin[0] + Column * Step - BayCentreX, X1 = X0 + Step;
+				const double Y0 = Grid.Origin[1] + Row * Step - BayCentreY, Y1 = Y0 + Step;
 				if (X0 >= -Grid.HoleHalf && X1 <= Grid.HoleHalf && Y0 >= -Grid.HoleHalf && Y1 <= Grid.HoleHalf)
 				{
 					continue; // the detailed section covers this
@@ -398,9 +398,9 @@ void ABayTerrain::ScatterPlants()
 	const double Spacing = 14.0;
 	const double Reach = 1500.0;
 	int32 Placed = 0;
-	for (double GY = CentreY - Reach; GY <= CentreY + Reach; GY += Spacing)
+	for (double GY = BayCentreY - Reach; GY <= BayCentreY + Reach; GY += Spacing)
 	{
-		for (double GX = CentreX - Reach * 1.15; GX <= CentreX + Reach * 1.15; GX += Spacing)
+		for (double GX = BayCentreX - Reach * 1.15; GX <= BayCentreX + Reach * 1.15; GX += Spacing)
 		{
 			const int64 CX = static_cast<int64>(GX), CY = static_cast<int64>(GY);
 			const double X = GX + (Hash2(CX, CY, 101) - 0.5) * Spacing;
@@ -416,7 +416,7 @@ void ABayTerrain::ScatterPlants()
 			const double Slope = FMath::Abs(Height(X + 3, Y) - Height(X - 3, Y)) / 6.0 + FMath::Abs(Height(X, Y + 3) - Height(X, Y - 3)) / 6.0;
 			const double Forest = 0.5 + 0.5 * Noise(X / 150.0, Y / 150.0, 61);
 			// Thin out with distance: the far hills only need a texture of trees.
-			const double R = FMath::Sqrt(FMath::Square(X - CentreX) + FMath::Square(Y - CentreY));
+			const double R = FMath::Sqrt(FMath::Square(X - BayCentreX) + FMath::Square(Y - BayCentreY));
 			const double Density = FMath::Lerp(1.0, 0.35, SmoothStep(700.0, 1500.0, R));
 
 			int32 Kind = -1;
