@@ -114,6 +114,7 @@ private:
 	int32 SeenState = -1;
 	bool bSeenFinish = false;
 	float WrongWayTime = 0.f;
+	float NextLockBeep = 0.f;
 
 	FVector2D MapMin = FVector2D::ZeroVector;
 	FVector2D MapMax = FVector2D::ZeroVector;

@@ -100,6 +100,7 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	UpdateTimeTrial(DeltaTime);
+	UpdateReplay(DeltaTime);
 
 	// Test hook: -ShotAt=60,90 saves screenshots (with the HUD) at those times.
 	static TArray<float> ShotTimes;
@@ -340,6 +341,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		Add(TEXT("Join by address"), EMenuAction::JoinAddress, TEXT("Type the host's IP address"));
 		Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
 		Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
+		Add(TEXT("Track"), EMenuAction::Track, TEXT("The bay clockwise or anticlockwise"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Bay circuit"), true);
 		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 		Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
@@ -355,7 +357,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
 			Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
 			Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
-			Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
+			Add(TEXT("Track"), EMenuAction::Track, TEXT("The bay clockwise or anticlockwise"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Bay circuit"), true);
+		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 			Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		}
 		if (bHost && bRacing)
@@ -392,6 +395,9 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			{ TEXT("Camera view / look back"), TEXT("C / B    R3 / LB") },
 			{ TEXT("Torpedo"), TEXT("SPACE / Left mouse    A") },
 			{ TEXT("Mine"), TEXT("Q / Right mouse    X") },
+			{ TEXT("Homing missile"), TEXT("E    B") },
+			{ TEXT("Flares (break a missile lock)"), TEXT("F    D-pad down") },
+			{ TEXT("Grenade (co-driver throws)"), TEXT("G    D-pad up") },
 			{ TEXT("Back to last gate"), TEXT("R    Y") },
 			{ TEXT("Pause menu"), TEXT("ESC    Menu button") },
 			{ TEXT("Start race (host)"), TEXT("ENTER    Start") },
@@ -563,6 +569,9 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		break;
 	case EMenuAction::Mode:
 		ServerRaceOption(2, 1);
+		break;
+	case EMenuAction::Track:
+		ServerRaceOption(3, 1);
 		break;
 	case EMenuAction::Camera:
 		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->CycleCamera(Step >= 0 ? 1 : -1); }
@@ -928,7 +937,7 @@ void ABoatRacePlayerController::ServerRaceOption_Implementation(int32 Option, in
 	UWorld* World = GetWorld();
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
-		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 2), FMath::Clamp(Step, -1, 1));
+		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 3), FMath::Clamp(Step, -1, 1));
 	}
 }
 
@@ -1033,5 +1042,74 @@ void ABoatRacePlayerController::ServerRequestReset_Implementation()
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
 		RaceMode->RequestResetBoat(this);
+	}
+}
+
+bool ABoatRacePlayerController::IsReplaying() const
+{
+	return Replay != nullptr && Replay->IsPlaying();
+}
+
+void ABoatRacePlayerController::UpdateReplay(float DeltaTime)
+{
+	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	if (RaceState == nullptr)
+	{
+		return;
+	}
+	if (Replay == nullptr)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Replay = GetWorld()->SpawnActor<AFinishReplay>(AFinishReplay::StaticClass(), FTransform::Identity, Params);
+		if (Replay == nullptr)
+		{
+			return;
+		}
+	}
+
+	const uint8 Phase = static_cast<uint8>(RaceState->RaceState);
+	const bool bEntered = Phase != ReplaySeenState;
+	ReplaySeenState = Phase;
+
+	switch (RaceState->RaceState)
+	{
+	case ERaceState::Countdown:
+		if (bEntered) { Replay->Clear(); }
+		break;
+	case ERaceState::Racing:
+		Replay->Record(DeltaTime);
+		for (APlayerState* Player : RaceState->PlayerArray)
+		{
+			const ABoatRacePlayerState* Racer = Cast<ABoatRacePlayerState>(Player);
+			if (Racer != nullptr && Racer->bFinished && Racer->FinishPosition == 1)
+			{
+				Replay->MarkWin();
+			}
+		}
+		break;
+	case ERaceState::Results:
+		// Nothing to replay of a lone time trial; and a photo stays a photo.
+		if (bEntered && !RaceState->bTimeTrial && !bPhotoMode)
+		{
+			Replay->Record(0.f);
+			Replay->Play(this);
+		}
+		else if (Replay->IsPlaying())
+		{
+			if (bPhotoMode || MenuScreen != EMenuScreen::None || WasInputKeyJustPressed(EKeys::Enter)
+				|| WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
+			{
+				Replay->Stop();
+			}
+			else
+			{
+				Replay->Advance(DeltaTime);
+			}
+		}
+		break;
+	default:
+		Replay->Stop();
+		break;
 	}
 }

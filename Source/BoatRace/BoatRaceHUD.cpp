@@ -3,6 +3,8 @@
 #include "BayTerrain.h"
 #include "BoatAudio.h"
 #include "BoatPawn.h"
+#include "BoatWeapons.h"
+#include "EngineUtils.h"
 #include "BoatPrefs.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
@@ -311,6 +313,17 @@ void ABoatRaceHUD::DrawHUD()
 		DrawRaceHud(RaceState, Standings, Width, Height, Scale);
 		break;
 	case ERaceState::Results:
+		if (const ABoatRacePlayerController* Viewer = Cast<ABoatRacePlayerController>(GetOwningPlayerController()); Viewer && Viewer->IsReplaying())
+		{
+			// Letterboxed like a broadcast, with the tag in the corner.
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 1.f), 0.f, 0.f, Width, Height * 0.1f);
+			DrawRect(FLinearColor(0.f, 0.f, 0.f, 1.f), 0.f, Height * 0.9f, Width, Height * 0.1f);
+			const float Blink = FMath::Fmod(GetWorld()->GetRealTimeSeconds(), 1.f) < 0.6f ? 1.f : 0.25f;
+			DrawRect(FLinearColor(1.f, 0.1f, 0.05f, Blink), 40.f * Scale, Height * 0.05f - 8.f * Scale, 16.f * Scale, 16.f * Scale);
+			DrawLabel(TEXT("REPLAY"), 66.f * Scale, Height * 0.05f - 16.f * Scale, 1.6f * Scale, Ink, 0.f, true);
+			DrawLabel(TEXT("ENTER  skip to results"), Width - 40.f * Scale, Height * 0.95f - 12.f * Scale, 1.1f * Scale, FLinearColor(1.f, 1.f, 1.f, 0.7f), 1.f);
+			break;
+		}
 		DrawResults(RaceState, Standings, Width, Height, Scale);
 		break;
 	default:
@@ -687,6 +700,48 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	DrawMiniMap(Standings, Me, Width, Height, Scale);
 	DrawDamageEdge(MyBoat, Width, Height);
 
+	// A missile has us: a flashing warning and a beep, until flares or impact.
+	if (MyBoat != nullptr)
+	{
+		bool bLocked = false;
+		for (TActorIterator<ABoatMissile> It(GetWorld()); It; ++It)
+		{
+			bLocked |= It->GetTarget() == MyBoat;
+		}
+		const float Now = static_cast<float>(GetWorld()->GetRealTimeSeconds());
+		if (bLocked)
+		{
+			if (FMath::Fmod(Now, 0.5f) < 0.3f)
+			{
+				DrawLabel(MyBoat->GetFlareAmmo() > 0 ? TEXT("MISSILE LOCK  -  F  FLARES") : TEXT("MISSILE LOCK"),
+					Width * 0.5f, Height * 0.6f, 2.4f * Scale, Bad, 0.5f, true);
+			}
+			if (Now > NextLockBeep)
+			{
+				NextLockBeep = Now + 0.6f;
+				BoatAudio::Play2D(this, EBoatSound::MissileLock, 0.5f);
+			}
+		}
+	}
+
+	// Nitrous: streaks rushing in from the edges of the screen.
+	if (MyBoat != nullptr && MyBoat->IsBoosting())
+	{
+		const float Now = static_cast<float>(GetWorld()->GetRealTimeSeconds());
+		const FVector2D Centre(Width * 0.5f, Height * 0.48f);
+		for (int32 Index = 0; Index < 28; ++Index)
+		{
+			const float Angle = Index * 0.2244f + FMath::Sin(Index * 12.9898f) * 0.1f;
+			const float Phase = FMath::Frac(Now * 2.2f + FMath::Frac(Index * 0.618f));
+			const FVector2D Direction(FMath::Cos(Angle), FMath::Sin(Angle));
+			const float Reach = Width * 0.75f;
+			const FVector2D A = Centre + Direction * (Reach * (0.45f + 0.5f * Phase));
+			const FVector2D B = A + Direction * (Reach * 0.12f);
+			DrawLine(static_cast<float>(A.X), static_cast<float>(A.Y), static_cast<float>(B.X), static_cast<float>(B.Y),
+				FLinearColor(0.7f, 0.9f, 1.f, 0.35f * Phase), 2.f * Scale);
+		}
+	}
+
 
 	if (Me == nullptr)
 	{
@@ -784,11 +839,11 @@ void ABoatRaceHUD::DrawStandingsBlock(const ABoatRaceGameState* RaceState, const
 	}
 	if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
 	{
-		if (Prefs->BestLap > 0.f)
+		if (Prefs->GetBestLap() > 0.f)
 		{
 			Row += 22.f * Scale;
 			DrawLabel(TEXT("RECORD"), LabelX, Row, 1.15f * Scale, Faint);
-			DrawLabel(FormatTime(Prefs->BestLap), ValueX, Row, 1.15f * Scale, FLinearColor(0.3f, 1.f, 1.f, 1.f));
+			DrawLabel(FormatTime(Prefs->GetBestLap()), ValueX, Row, 1.15f * Scale, FLinearColor(0.3f, 1.f, 1.f, 1.f));
 		}
 	}
 	Row += 42.f * Scale;
@@ -850,7 +905,7 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	}
 
 	const float RightX = Width - 44.f * Scale;
-	float Y = Height - 184.f * Scale;
+	float Y = Height - 262.f * Scale;
 
 	const float HealthFraction = Boat->GetHealth() / FMath::Max(Boat->GetMaxHealth(), 1.f);
 	const FLinearColor HullColor = (HealthFraction > 0.55f) ? Good : (HealthFraction > 0.25f ? Accent : Bad);
@@ -883,6 +938,14 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	Y += 26.f * Scale;
 	DrawLabel(TEXT("MINE      Q"), RightX - 230.f * Scale, Y, 1.1f * Scale, Mines > 0 ? Dim : Faint);
 	DrawLabel(FString::FromInt(Mines), RightX, Y, 1.4f * Scale, Mines > 0 ? Ink : Faint, 1.f);
+	const int32 Specials[] = { Boat->GetMissileAmmo(), Boat->GetFlareAmmo(), Boat->GetGrenadeAmmo() };
+	const TCHAR* const Names[] = { TEXT("MISSILE   E"), TEXT("FLARES    F"), TEXT("GRENADE   G") };
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		Y += 26.f * Scale;
+		DrawLabel(Names[Index], RightX - 230.f * Scale, Y, 1.1f * Scale, Specials[Index] > 0 ? Dim : Faint);
+		DrawLabel(FString::FromInt(Specials[Index]), RightX, Y, 1.4f * Scale, Specials[Index] > 0 ? Ink : Faint, 1.f);
+	}
 }
 
 void ABoatRaceHUD::BuildMapLand(double Biggest)

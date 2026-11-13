@@ -124,6 +124,17 @@ public:
 	float GetMaxHealth() const { return MaxHealth; }
 	int32 GetTorpedoAmmo() const { return TorpedoAmmo; }
 	int32 GetMineAmmo() const { return MineAmmo; }
+	int32 GetMissileAmmo() const { return MissileAmmo; }
+	int32 GetFlareAmmo() const { return FlareAmmo; }
+	int32 GetGrenadeAmmo() const { return GrenadeAmmo; }
+	/** Flares burning: any missile on this boat breaks its lock. */
+	bool IsFlaring() const;
+
+	/** Server only: missiles, flares and grenades from a crate. */
+	void GiveSpecials(int32 Missiles, int32 Flares, int32 Grenades);
+
+	/** Server only, for computer drivers: 0 missile, 1 flares, 2 grenade. */
+	void RequestSpecial(int32 Weapon);
 	bool IsInvulnerable() const;
 	/** How far out of the water the hull is, 0 afloat to 1 airborne. */
 	float GetAirborneFraction() const { return 1.f - FMath::Clamp(LastSubmersion * BuoyancyMultiplier, 0.f, 1.f); }
@@ -257,6 +268,15 @@ public:
 	UPROPERTY(Config)
 	float FireCooldownSeconds = 0.9f;
 
+	UPROPERTY(Config)
+	int32 StartMissiles = 1;
+
+	UPROPERTY(Config)
+	int32 StartFlares = 1;
+
+	UPROPERTY(Config)
+	int32 StartGrenades = 2;
+
 	/** Which boat model to use: RaceBoat (the Blender boat, painted in the
 	 *  player's colour) or Higgsfield (the generated SM_Boat). */
 	UPROPERTY(Config)
@@ -295,6 +315,15 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDropMine();
 
+	UFUNCTION(Server, Reliable)
+	void ServerFireMissile();
+
+	UFUNCTION(Server, Reliable)
+	void ServerDropFlares();
+
+	UFUNCTION(Server, Reliable)
+	void ServerThrowGrenade();
+
 	/** The owner hit something hard; the server decides what it costs. */
 	UFUNCTION(Server, Unreliable)
 	void ServerReportImpact(FVector_NetQuantize Location, float Speed, ABoatPawn* OtherBoat);
@@ -328,6 +357,19 @@ protected:
 	UPROPERTY(Replicated)
 	int32 MineAmmo = 0;
 
+	UPROPERTY(Replicated)
+	int32 MissileAmmo = 0;
+
+	UPROPERTY(Replicated)
+	int32 FlareAmmo = 0;
+
+	UPROPERTY(Replicated)
+	int32 GrenadeAmmo = 0;
+
+	/** Server time until which this boat's flares are burning. */
+	UPROPERTY(Replicated)
+	float FlaringUntil = 0.f;
+
 	// ---- Components ------------------------------------------------------
 	/** The simulated body. Everything else hangs off it. */
 	UPROPERTY(VisibleAnywhere, Category = "Boat")
@@ -354,6 +396,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Boat")
 	TObjectPtr<UStaticMeshComponent> FlagMesh;
 
+public:
+	/** The boat as seen (the Blender model), for the finish replay to copy. */
+	UStaticMeshComponent* GetLookMesh() const { return CustomMesh; }
+
+protected:
 	/** Holds /Game/Higgsfield/SM_Boat when that asset exists. */
 	UPROPERTY(VisibleAnywhere, Category = "Boat")
 	TObjectPtr<UStaticMeshComponent> CustomMesh;
@@ -451,6 +498,20 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> RoosterTail;
+
+	/** Nitrous: blue flames off the outboards and a flash of light while boosting. */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> NitroFlames;
+
+	UPROPERTY()
+	TObjectPtr<UPointLightComponent> NitroLight;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> NitroAudio;
+
+	/** A glowing lamp on the bow at night, so others see you coming. */
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> HeadlampGlow;
 
 	/** The shield: a soft bubble round the boat while it cannot be hurt. */
 	UPROPERTY()

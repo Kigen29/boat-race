@@ -1,4 +1,5 @@
 #include "BoatPrefs.h"
+#include "BoatTrack.h"
 
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -58,20 +59,37 @@ void UBoatPrefs::ApplyGraphics() const
 {
 	// The engine's own scalability groups do the heavy lifting (shadows,
 	// effects, view distance); on top, the render resolution and motion blur.
-	if (GEngine == nullptr || GraphicsQuality < 0)
+	if (GEngine == nullptr)
 	{
-		return; // Auto: whatever the engine and the low-spec preset chose
+		return;
+	}
+	if (GraphicsQuality < 0)
+	{
+		// Auto: full resolution with a sharpening pass (the low-spec preset's
+		// 70% made everything soft), paid for with fewer shadow cascades.
+		static const TCHAR* const Auto[] =
+		{
+			TEXT("r.ScreenPercentage 100"), TEXT("r.Tonemapper.Sharpen 0.8"),
+			TEXT("r.Shadow.CSM.MaxCascades 2"), TEXT("r.Shadow.DistanceScale 0.75"),
+			TEXT("r.Shadow.MaxResolution 1024"),
+		};
+		for (const TCHAR* Command : Auto)
+		{
+			GEngine->Exec(nullptr, Command);
+		}
+		return;
 	}
 	if (UGameUserSettings* Settings = GEngine->GetGameUserSettings())
 	{
 		Settings->SetOverallScalabilityLevel(GraphicsQuality);
 		Settings->ApplySettings(false);
 	}
-	static const int32 Percent[] = { 70, 85, 100, 100 };
+	static const int32 Percent[] = { 75, 90, 100, 100 };
 	const FString Commands[] =
 	{
 		FString::Printf(TEXT("r.ScreenPercentage %d"), Percent[FMath::Clamp(GraphicsQuality, 0, 3)]),
 		FString::Printf(TEXT("r.DefaultFeature.MotionBlur %d"), GraphicsQuality > 0 ? 1 : 0),
+		TEXT("r.Tonemapper.Sharpen 0.6"),
 	};
 	for (const FString& Command : Commands)
 	{
@@ -81,18 +99,36 @@ void UBoatPrefs::ApplyGraphics() const
 
 bool UBoatPrefs::OfferLap(float Seconds)
 {
-	if (Seconds <= 0.f || (BestLap > 0.f && Seconds >= BestLap))
+	const float Best = GetBestLap();
+	if (Seconds <= 0.f || (Best > 0.f && Seconds >= Best))
 	{
 		return false;
 	}
-	BestLap = Seconds;
+	if (BoatTrack::IsReversed())
+	{
+		BestRace.Add(TEXT("RLap"), Seconds);
+	}
+	else
+	{
+		BestLap = Seconds;
+	}
 	SaveConfig();
 	return true;
 }
 
+float UBoatPrefs::GetBestLap() const
+{
+	if (!BoatTrack::IsReversed())
+	{
+		return BestLap;
+	}
+	const float* Best = BestRace.Find(TEXT("RLap"));
+	return Best ? *Best : 0.f;
+}
+
 bool UBoatPrefs::OfferRace(int32 Laps, float Seconds)
 {
-	const FString Key = FString::FromInt(Laps);
+	const FString Key = (BoatTrack::IsReversed() ? TEXT("R") : TEXT("")) + FString::FromInt(Laps);
 	const float* Best = BestRace.Find(Key);
 	if (Seconds <= 0.f || (Best != nullptr && Seconds >= *Best))
 	{
@@ -105,6 +141,6 @@ bool UBoatPrefs::OfferRace(int32 Laps, float Seconds)
 
 float UBoatPrefs::GetBestRace(int32 Laps) const
 {
-	const float* Best = BestRace.Find(FString::FromInt(Laps));
+	const float* Best = BestRace.Find((BoatTrack::IsReversed() ? TEXT("R") : TEXT("")) + FString::FromInt(Laps));
 	return Best ? *Best : 0.f;
 }

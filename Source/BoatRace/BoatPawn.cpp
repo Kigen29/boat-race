@@ -5,6 +5,7 @@
 #include "BoatAudio.h"
 #include "BoatPrefs.h"
 #include "BoatProjectile.h"
+#include "BoatWeapons.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerController.h"
@@ -129,11 +130,12 @@ ABoatPawn::ABoatPawn()
 	Headlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Headlight"));
 	Headlight->SetupAttachment(VisualRoot);
 	Headlight->SetRelativeLocation(FVector(330.f, 0.f, 90.f));
-	Headlight->SetRelativeRotation(FRotator(-6.f, 0.f, 0.f));
+	Headlight->SetRelativeRotation(FRotator(-7.f, 0.f, 0.f));
 	Headlight->SetIntensity(0.f);
-	Headlight->SetAttenuationRadius(9000.f);
-	Headlight->SetOuterConeAngle(32.f);
-	Headlight->SetInnerConeAngle(18.f);
+	// Long enough to light the water a hundred and fifty metres ahead.
+	Headlight->SetAttenuationRadius(18000.f);
+	Headlight->SetOuterConeAngle(34.f);
+	Headlight->SetInnerConeAngle(16.f);
 	Headlight->SetCastShadows(false);
 	Headlight->SetVisibility(false);
 
@@ -207,6 +209,9 @@ void ABoatPawn::BeginPlay()
 	{
 		TorpedoAmmo = StartTorpedoes;
 		MineAmmo = StartMines;
+		MissileAmmo = StartMissiles;
+		FlareAmmo = StartFlares;
+		GrenadeAmmo = StartGrenades;
 		NetState.Location = GetActorLocation();
 		NetState.Rotation = GetActorRotation();
 		bHasNetState = true;
@@ -238,6 +243,10 @@ void ABoatPawn::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(ABoatPawn, InvulnerableUntil);
 	DOREPLIFETIME_CONDITION(ABoatPawn, TorpedoAmmo, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(ABoatPawn, MineAmmo, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(ABoatPawn, MissileAmmo, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(ABoatPawn, FlareAmmo, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(ABoatPawn, GrenadeAmmo, COND_OwnerOnly);
+	DOREPLIFETIME(ABoatPawn, FlaringUntil);
 }
 
 float ABoatPawn::GetWaveTime() const
@@ -464,6 +473,19 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 		if (bFirePressed)
 		{
 			ServerFireTorpedo();
+		}
+		// E missile, F flares, G grenade (pad: B, D-pad down, D-pad up).
+		if (PlayerController->WasInputKeyJustPressed(EKeys::E) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
+		{
+			ServerFireMissile();
+		}
+		if (PlayerController->WasInputKeyJustPressed(EKeys::F) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Down))
+		{
+			ServerDropFlares();
+		}
+		if (PlayerController->WasInputKeyJustPressed(EKeys::G) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Up))
+		{
+			ServerThrowGrenade();
 		}
 		if (bMinePressed)
 		{
@@ -1037,6 +1059,100 @@ void ABoatPawn::Revive(float InvulnerableSeconds)
 	InvulnerableUntil = (RaceState ? RaceState->GetServerNow() : 0.f) + InvulnerableSeconds;
 }
 
+bool ABoatPawn::IsFlaring() const
+{
+	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	return RaceState != nullptr && RaceState->GetServerNow() < FlaringUntil;
+}
+
+void ABoatPawn::GiveSpecials(int32 Missiles, int32 Flares, int32 Grenades)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	MissileAmmo = FMath::Clamp(MissileAmmo + Missiles, 0, 3);
+	FlareAmmo = FMath::Clamp(FlareAmmo + Flares, 0, 3);
+	GrenadeAmmo = FMath::Clamp(GrenadeAmmo + Grenades, 0, 5);
+}
+
+void ABoatPawn::RequestSpecial(int32 Weapon)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	switch (Weapon)
+	{
+	case 0: ServerFireMissile_Implementation(); break;
+	case 1: ServerDropFlares_Implementation(); break;
+	default: ServerThrowGrenade_Implementation(); break;
+	}
+}
+
+void ABoatPawn::ServerFireMissile_Implementation()
+{
+	UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const float Now = RaceState ? RaceState->GetServerNow() : 0.f;
+	if (World == nullptr || bWrecked || MissileAmmo <= 0 || Now - LastFireTime < FireCooldownSeconds)
+	{
+		return;
+	}
+	LastFireTime = Now;
+	MissileAmmo--;
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.Instigator = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// Off a rail above the cockpit, climbing a little at first.
+	const FVector Start = GetActorLocation() + GetActorForwardVector() * 200.f + FVector(0.f, 0.f, 260.f);
+	if (ABoatMissile* Missile = World->SpawnActor<ABoatMissile>(ABoatMissile::StaticClass(), Start,
+		FRotator(4.f, GetActorRotation().Yaw, 0.f), Params))
+	{
+		Missile->Launch(this);
+	}
+}
+
+void ABoatPawn::ServerDropFlares_Implementation()
+{
+	UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const float Now = RaceState ? RaceState->GetServerNow() : 0.f;
+	if (World == nullptr || bWrecked || FlareAmmo <= 0 || Now < FlaringUntil)
+	{
+		return;
+	}
+	FlareAmmo--;
+	FlaringUntil = Now + 3.f;
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	World->SpawnActor<AFlareBurst>(AFlareBurst::StaticClass(), GetActorLocation() + FVector(0.f, 0.f, 250.f),
+		FRotator(0.f, GetActorRotation().Yaw, 0.f), Params);
+}
+
+void ABoatPawn::ServerThrowGrenade_Implementation()
+{
+	UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const float Now = RaceState ? RaceState->GetServerNow() : 0.f;
+	if (World == nullptr || bWrecked || GrenadeAmmo <= 0 || Now - LastFireTime < 0.5f)
+	{
+		return;
+	}
+	LastFireTime = Now;
+	GrenadeAmmo--;
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// From the co-driver's seat.
+	const FVector Hand = GetActorLocation() - GetActorForwardVector() * 90.f - GetActorRightVector() * 40.f + FVector(0.f, 0.f, 220.f);
+	if (ABoatGrenade* Grenade = World->SpawnActor<ABoatGrenade>(ABoatGrenade::StaticClass(), Hand, FRotator::ZeroRotator, Params))
+	{
+		Grenade->Throw(this);
+	}
+}
+
 void ABoatPawn::GrantShield(float Seconds)
 {
 	if (!HasAuthority())
@@ -1051,8 +1167,13 @@ void ABoatPawn::GrantShield(float Seconds)
 void ABoatPawn::ClientPickup_Implementation(uint8 Kind, uint8 Torpedoes, uint8 Mines)
 {
 	PickupAge = 0.f;
-	PickupMessage = Kind == 1 ? FString(TEXT("SHIELD  8 s"))
-		: FString::Printf(TEXT("+%d TORPEDOES   +%d MINES"), Torpedoes, Mines);
+	switch (Kind)
+	{
+	case 1:  PickupMessage = TEXT("SHIELD  8 s"); break;
+	case 2:  PickupMessage = TEXT("+1 MISSILE   +1 FLARES"); break;
+	case 3:  PickupMessage = TEXT("+3 GRENADES"); break;
+	default: PickupMessage = FString::Printf(TEXT("+%d TORPEDOES   +%d MINES"), Torpedoes, Mines); break;
+	}
 }
 
 void ABoatPawn::GiveAmmo(int32 Torpedoes, int32 Mines)
@@ -1498,6 +1619,41 @@ void ABoatPawn::BuildEffects()
 
 	Wake.Init(this);
 
+	// Nitrous flames: one off the back of each outboard, pointing aft.
+	for (const float Side : { 1.f, -1.f })
+	{
+		UStaticMeshComponent* Flame = NewObject<UStaticMeshComponent>(this);
+		Flame->SetStaticMesh(Cone);
+		Flame->SetupAttachment(VisualRoot);
+		Flame->SetRelativeLocation(FVector(-440.f, Side * 40.f, 60.f));
+		Flame->SetRelativeRotation(FRotator(90.f, 0.f, 0.f)); // the cone's tip turned to point aft
+		Flame->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Flame->SetCastShadow(false);
+		Flame->RegisterComponent();
+		Flame->SetMaterial(0, BoatArt::GlowMaterial(Flame, FLinearColor(1.5f, 4.f, 14.f)));
+		Flame->SetVisibility(false);
+		NitroFlames.Add(Flame);
+	}
+	NitroLight = NewObject<UPointLightComponent>(this);
+	NitroLight->SetupAttachment(VisualRoot);
+	NitroLight->SetRelativeLocation(FVector(-520.f, 0.f, 80.f));
+	NitroLight->SetLightColor(FLinearColor(0.3f, 0.6f, 1.f));
+	NitroLight->SetAttenuationRadius(2500.f);
+	NitroLight->SetCastShadows(false);
+	NitroLight->SetIntensity(0.f);
+	NitroLight->RegisterComponent();
+
+	HeadlampGlow = NewObject<UStaticMeshComponent>(this);
+	HeadlampGlow->SetStaticMesh(Sphere);
+	HeadlampGlow->SetupAttachment(VisualRoot);
+	HeadlampGlow->SetRelativeLocation(FVector(300.f, 0.f, 80.f));
+	HeadlampGlow->SetRelativeScale3D(FVector(0.22f, 0.4f, 0.16f));
+	HeadlampGlow->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HeadlampGlow->SetCastShadow(false);
+	HeadlampGlow->RegisterComponent();
+	HeadlampGlow->SetMaterial(0, BoatArt::GlowMaterial(HeadlampGlow, FLinearColor(20.f, 19.f, 16.f)));
+	HeadlampGlow->SetVisibility(false);
+
 	// The shield bubble, hidden until the boat cannot be hurt.
 	ShieldBubble = NewObject<UStaticMeshComponent>(this);
 	ShieldBubble->SetStaticMesh(Sphere);
@@ -1790,7 +1946,28 @@ void ABoatPawn::UpdateEffects(float DeltaSeconds)
 	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
 	const bool bNight = RaceState && RaceWeather::Get(RaceState->GetWeather()).bNight;
 	Headlight->SetVisibility(bNight && !bWrecked);
-	Headlight->SetIntensity(bNight ? 60000.f : 0.f);
+	Headlight->SetIntensity(bNight ? 140000.f : 0.f);
+	if (HeadlampGlow != nullptr)
+	{
+		HeadlampGlow->SetVisibility(bNight && !bWrecked);
+	}
+
+	// --- Nitrous: flickering blue flames and a pulse of light.
+	const bool bNitro = (IsLocallyControlled() ? bBoostActive : NetState.bBoosting) && !bWrecked;
+	for (int32 Index = 0; Index < NitroFlames.Num(); ++Index)
+	{
+		UStaticMeshComponent* Flame = NitroFlames[Index];
+		Flame->SetVisibility(bNitro);
+		if (bNitro)
+		{
+			const float Flicker = 0.8f + 0.2f * FMath::Sin(Now * (41.f + Index * 7.f)) + FMath::FRandRange(-0.1f, 0.1f);
+			Flame->SetRelativeScale3D(FVector(0.32f * Flicker, 0.32f * Flicker, 1.6f * Flicker));
+		}
+	}
+	if (NitroLight != nullptr)
+	{
+		NitroLight->SetIntensity(bNitro ? 30000.f * (0.85f + 0.15f * FMath::Sin(Now * 37.f)) : 0.f);
+	}
 }
 
 void ABoatPawn::UpdateAudio(float DeltaSeconds)
@@ -1824,6 +2001,19 @@ void ABoatPawn::UpdateAudio(float DeltaSeconds)
 
 	const bool bBoostSound = IsLocallyControlled() ? bBoostActive : NetState.bBoosting;
 	EngineAudio->SetPitchMultiplier(0.65f + 1.75f * EngineRevs + (bBoostSound ? 0.3f : 0.f));
+	if (NitroAudio == nullptr)
+	{
+		NitroAudio = Audio->MakeLoop(Hull, EBoatSound::Nitro, true);
+		if (NitroAudio != nullptr)
+		{
+			NitroAudio->SetVolumeMultiplier(0.001f);
+			NitroAudio->Play();
+		}
+	}
+	if (NitroAudio != nullptr)
+	{
+		NitroAudio->SetVolumeMultiplier(bBoostSound && !bWrecked ? 0.9f * Audio->EffectsVolume : 0.001f);
+	}
 	const float Loudness = (bWrecked ? 0.f : 0.3f + 0.55f * FMath::Abs(Throttle) + 0.25f * SpeedFraction) * (IsLocallyControlled() ? 0.75f : 1.f);
 	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness * Audio->EffectsVolume, 0.001f));
 	if (WaterAudio != nullptr)

@@ -36,10 +36,30 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** Server only: shove the barrel away from an explosion. */
+	/** Server only: shove the barrel away from an explosion, or set it off. */
 	void PushFromBlast(const FVector& Origin, float Radius, float Impulse);
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
+	/** Blown up and waiting to float back in. */
+	UPROPERTY(ReplicatedUsing = OnRep_Gone)
+	bool bGone = false;
+
+	UFUNCTION()
+	void OnRep_Gone();
+
+	UFUNCTION()
+	void OnBodyHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent,
+		FVector NormalImpulse, const FHitResult& Hit);
+
+	void Blow();
+	void ApplyGone();
+
+	FVector Home = FVector::ZeroVector;
+	float ExplodeAt = -1.f;
+	float ReturnAt = -1.f;
+
 	/** The physics body: a plain cylinder, hidden when the barrel model is there. */
 	UPROPERTY(VisibleAnywhere, Category = "Debris")
 	TObjectPtr<UStaticMeshComponent> Body;
@@ -67,6 +87,7 @@ public:
 	ARaceEnvironment();
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	/** Sea state: 0 glass, 1 the default lively sea, 2 a storm. Each weather
@@ -131,6 +152,17 @@ private:
 	void UpdateTraffic(float Seconds, float DeltaSeconds);
 	void ApplyGrade(const FWeatherLook& Look);
 	void SpawnServerActors();
+	void UpdateSeaMines(float Seconds);
+
+	/** Sea mines drifting on the course, and when each one may be re-laid. */
+	TArray<FVector2D> SeaMineHomes;
+	TArray<TWeakObjectPtr<class ABoatMine>> SeaMines;
+
+	/** Crates and barrels this environment spawned, removed with it when the
+	 *  track is turned round and the bay rebuilt. */
+	TArray<TWeakObjectPtr<AActor>> Spawned;
+	TArray<float> SeaMineReturn;
+	float SeaMineCheck = 0.f;
 	void UpdateFloatingPieces(float Seconds);
 	void UpdateRopes(float Seconds);
 	void UpdateWhirlpools(float Seconds);

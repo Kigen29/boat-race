@@ -80,6 +80,12 @@ void FBoatWakeTrail::Update(const FVector& Stern, const FVector& Forward, float 
 		Samples.Pop();
 	}
 
+	if (Now - LastBuild < 1.f / 30.f)
+	{
+		return;
+	}
+	LastBuild = Now;
+
 	// The live point at the transom, then the laid-down samples behind it.
 	TArray<FSample> Points;
 	Points.Reserve(Samples.Num() + 1);

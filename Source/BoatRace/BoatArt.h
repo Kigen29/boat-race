@@ -67,4 +67,7 @@ namespace BoatArt
 
 	/** Sets Color (and Opacity when it is a soft material) on any of the above. */
 	void SetPuff(UMaterialInstanceDynamic* Material, const FLinearColor& Color, float Opacity);
+
+	/** How much light the weather gives unlit puffs: 1 by day, low at night. */
+	void SetAmbientLight(float Light);
 }

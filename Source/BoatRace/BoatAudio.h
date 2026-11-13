@@ -34,6 +34,11 @@ enum class EBoatSound : uint8
 	Music,       // loop: the race
 	MenuMusic,   // loop: menus and lobby, calmer
 	Crowd,       // a grandstand cheering
+	Nitro,       // loop: nitrous hiss and roar while boosting
+	MissileLaunch,
+	MissileLock, // the beeping when something has you locked
+	Flare,
+	Grenade,
 	Count
 };
 

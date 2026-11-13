@@ -51,7 +51,7 @@ public:
 
 	/** How long the standings stay up before returning to the lobby. */
 	UPROPERTY(Config)
-	float ResultsSeconds = 25.f;
+	float ResultsSeconds = 35.f;
 
 	/** Once the winner is home, the rest have this long to finish. */
 	UPROPERTY(Config)

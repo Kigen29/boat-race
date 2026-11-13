@@ -625,6 +625,59 @@ namespace
 		return Out;
 	}
 
+	FBuffer MakeNitro()
+	{
+		// The hiss of the bottle and the roar it brings: bright noise over a
+		// low rumble, with a fast flutter.
+		FBuffer Out = Silence(2.2f);
+		FRandomStream Random(61);
+		FHighPass Hiss(3000.f);
+		FLowPass Roar(240.f), Soft(9000.f);
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			const float White = Random.FRandRange(-1.f, 1.f);
+			const float Flutter = 0.75f + 0.25f * FMath::Sin(TwoPi * 31.f * Time);
+			Out[Index] = Soft(Hiss(White)) * 0.6f * Flutter + Roar(White) * 2.6f;
+		}
+		MakeLoop(Out, 0.3f);
+		Normalise(Out, 0.7f);
+		return Out;
+	}
+
+	FBuffer MakeMissileLaunch()
+	{
+		// Ignition crack, then a rocket's tearing roar dropping away.
+		FBuffer Out = Silence(1.6f);
+		FRandomStream Random(67);
+		FLowPass Body(2500.f);
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			const float White = Random.FRandRange(-1.f, 1.f);
+			Body.Set(2500.f * FMath::Exp(-Time / 0.9f) + 300.f);
+			Out[Index] = White * FMath::Exp(-Time / 0.02f) + Body(White) * 2.f * FMath::Min(Time * 20.f, 1.f) * FMath::Exp(-Time / 0.7f);
+		}
+		Normalise(Out, 0.85f);
+		return Out;
+	}
+
+	FBuffer MakeGrenadeThrow()
+	{
+		// A grunt-less whoosh of something lobbed past.
+		FBuffer Out = Silence(0.5f);
+		FRandomStream Random(71);
+		FLowPass Band(800.f);
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			Band.Set(600.f + 2400.f * FMath::Sin(Time / 0.5f * PI));
+			Out[Index] = Band(Random.FRandRange(-1.f, 1.f)) * FMath::Sin(Time / 0.5f * PI) * 1.8f;
+		}
+		Normalise(Out, 0.5f);
+		return Out;
+	}
+
 	using FSamples = TSharedPtr<const TArray<int16>, ESPMode::ThreadSafe>;
 
 	FSamples ToPcm(const FBuffer& Buffer)
@@ -671,6 +724,11 @@ namespace
 		case EBoatSound::Music:     Buffer = MakeMusic(false); break;
 		case EBoatSound::MenuMusic: Buffer = MakeMusic(true); break;
 		case EBoatSound::Crowd:     Buffer = MakeCrowd(); break;
+		case EBoatSound::Nitro:     Buffer = MakeNitro(); break;
+		case EBoatSound::MissileLaunch: Buffer = MakeMissileLaunch(); break;
+		case EBoatSound::MissileLock:   Buffer = MakeBeeps(3, 1900.f, 0.06f, 0.05f); break;
+		case EBoatSound::Flare:     Buffer = MakeSplash(); break;
+		case EBoatSound::Grenade:   Buffer = MakeGrenadeThrow(); break;
 		default:                    Buffer = Silence(0.1f); break;
 		}
 		Slot = ToPcm(Buffer);

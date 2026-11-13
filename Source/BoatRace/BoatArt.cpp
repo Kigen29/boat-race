@@ -354,12 +354,24 @@ UMaterialInstanceDynamic* BoatArt::GlowMaterial(UObject* Outer, const FLinearCol
 	return Instance;
 }
 
+namespace { float GPuffLight = 1.f; }
+
 void BoatArt::SetPuff(UMaterialInstanceDynamic* Material, const FLinearColor& Color, float Opacity)
 {
 	if (Material == nullptr)
 	{
 		return;
 	}
-	Material->SetVectorParameterValue(TEXT("Color"), Color);
+	// Puffs are unlit, so spray and smoke would glow white in the dark; the
+	// weather dims them to the light there is. Flames (colours brighter than
+	// white) are their own light and are left alone.
+	const bool bFlame = Color.GetMax() > 1.5f;
+	const float Light = bFlame ? 1.f : GPuffLight;
+	Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(Color.R * Light, Color.G * Light, Color.B * Light, Color.A));
 	Material->SetScalarParameterValue(TEXT("Opacity"), FMath::Clamp(Opacity, 0.f, 1.f));
+}
+
+void BoatArt::SetAmbientLight(float Light)
+{
+	GPuffLight = FMath::Clamp(Light, 0.02f, 1.f);
 }

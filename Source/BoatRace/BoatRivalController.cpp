@@ -1,6 +1,7 @@
 #include "BoatRivalController.h"
 
 #include "BoatPawn.h"
+#include "BoatWeapons.h"
 #include "BoatRaceGameMode.h"
 #include "BoatRaceGameState.h"
 #include "BoatRacePlayerState.h"
@@ -110,6 +111,17 @@ void ABoatRivalController::UseWeapons(ABoatPawn* Boat, float Now)
 	}
 	const FVector Location = Boat->GetActorLocation();
 	const FVector Forward = Boat->GetActorForwardVector();
+	// Locked on to by a missile: flares.
+	for (TActorIterator<ABoatMissile> It(GetWorld()); It; ++It)
+	{
+		if (It->GetTarget() == Boat && Boat->GetFlareAmmo() > 0 && FVector::Dist(It->GetActorLocation(), Location) < 12000.f
+			&& FMath::FRand() < 0.5f + 0.4f * Skill)
+		{
+			Boat->RequestSpecial(1);
+			NextWeaponTime = Now + 1.f;
+			return;
+		}
+	}
 	for (TActorIterator<ABoatPawn> It(GetWorld()); It; ++It)
 	{
 		const ABoatPawn* Other = *It;
@@ -120,6 +132,18 @@ void ABoatRivalController::UseWeapons(ABoatPawn* Boat, float Now)
 		const FVector Offset = Other->GetRaceLocation() - Location;
 		const float Distance = static_cast<float>(Offset.Size2D());
 		const float Facing = static_cast<float>(FVector::DotProduct(Offset.GetSafeNormal2D(), Forward.GetSafeNormal2D()));
+		if (Boat->GetMissileAmmo() > 0 && Distance > 4000.f && Distance < 20000.f && Facing > 0.8f)
+		{
+			Boat->RequestSpecial(0);
+			NextWeaponTime = Now + FMath::FRandRange(3.f, 6.f) / Skill;
+			return;
+		}
+		if (Boat->GetGrenadeAmmo() > 0 && Distance < 3000.f && FMath::Abs(Facing) < 0.6f)
+		{
+			Boat->RequestSpecial(2);
+			NextWeaponTime = Now + FMath::FRandRange(2.f, 4.f) / Skill;
+			return;
+		}
 		if (Boat->GetTorpedoAmmo() > 0 && Distance > 2500.f && Distance < 11000.f && Facing > 0.985f)
 		{
 			Boat->RequestFire(false);

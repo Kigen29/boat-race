@@ -48,4 +48,6 @@ private:
 	TObjectPtr<UProceduralMeshComponent> Mesh;
 	TObjectPtr<UMaterialInstanceDynamic> Material;
 	float LastBrightness = -1.f;
+	/** The ribbon is rebuilt thirty times a second, not every frame. */
+	float LastBuild = -1.f;
 };

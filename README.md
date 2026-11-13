@@ -61,7 +61,10 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 | SPACE or left mouse | Fire a torpedo |
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
-| SHIFT / RB | Boost (fills slowly, and fast while airborne off a ramp) |
+| SHIFT / RB | Nitrous boost (fills slowly, and fast while airborne off a ramp) |
+| E | Fire a homing missile (locks on to the boat ahead of you) |
+| F | Drop flares: any missile locked on you chases them instead |
+| G | Your copilot lobs a grenade over the side |
 | C / B | Cycle camera view / look behind |
 | Pause menu > Photo mode | Free camera with no HUD: WASD fly, mouse look, Q/E down/up, SHIFT fast, F12 save a picture, ESC back |
 | ESC | Pause menu: resume, restart, back to last gate, settings, controls, leave, quit |
@@ -74,7 +77,10 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 | L | Leave the race |
 
 Gamepad: triggers for throttle, left stick to steer, A torpedo, X mine,
-Y reset, Start to begin.
+B missile, D-pad down flares, D-pad up grenade, Y reset, Start to begin.
+
+After a race the finish is replayed in slow motion from the bank; ENTER skips
+to the results.
 
 ## What is in it
 
@@ -90,10 +96,14 @@ Ramming, obstacles and explosions are real impulses.
 
 **The circuit.** 3 km, sixteen gates, 90 m between buoys (the UIM minimum for
 F1H2O powerboat racing). Nine rock spires, four jump ramps, two barges crossing
-the course, three whirlpools, twelve floating barrels.
+the course, three whirlpools, explosive red barrels (ram one, or shoot it,
+and it goes off and sets off its neighbours) and a field of drifting sea
+mines just off the racing line. The menu's **Track** option turns the whole
+circuit round: the reverse track has its own ramps, ghost and records.
 
-**The weapons.** Torpedoes that skim the surface and mines you drop behind you,
-both decided by the server. A wreck costs you about eight seconds, which is the
+**The weapons.** Torpedoes that skim the surface, mines you drop behind you,
+homing missiles (with a lock warning and flares to shake them), and grenades
+your copilot throws, all decided by the server. Crates hand out more. A wreck costs you about eight seconds, which is the
 point: shooting is a way to gain track position, not a score.
 
 **The HUD.** Position, lap, clock, best lap, the running order with time gaps,

@@ -3,6 +3,7 @@
 #include "BayTerrain.h"
 #include "BoatArt.h"
 #include "BoatAudio.h"
+#include "BoatPawn.h"
 #include "BoatProjectile.h"
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
@@ -25,6 +26,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Net/UnrealNetwork.h"
 
 namespace
 {
@@ -103,8 +105,8 @@ void ADebrisBarrel::BeginPlay()
 		const float Unit = BoatArt::UnitScale(Barrel, 1.3f);
 		Look->SetRelativeScale3D(FVector(Unit / 0.9f, Unit / 0.9f, Unit / 1.3f));
 		BoatArt::FLook Paint;
-		const int32 Pick = FMath::Abs(GetUniqueID()) % 3;
-		Paint.Paint = Pick == 0 ? FLinearColor(0.8f, 0.1f, 0.05f) : (Pick == 1 ? FLinearColor(0.05f, 0.3f, 0.85f) : FLinearColor(0.9f, 0.6f, 0.02f));
+		// Red drums of fuel: everyone knows what those do.
+		Paint.Paint = FLinearColor(0.75f, 0.06f, 0.03f);
 		BoatArt::Paint(Look, Paint);
 		Body->SetVisibility(false, false);
 	}
@@ -119,7 +121,49 @@ void ADebrisBarrel::BeginPlay()
 		Body->SetMassOverrideInKg(NAME_None, 160.f, true);
 		Body->SetLinearDamping(0.9f);
 		Body->SetAngularDamping(1.4f);
+		Body->SetNotifyRigidBodyCollision(true);
+		Body->OnComponentHit.AddDynamic(this, &ADebrisBarrel::OnBodyHit);
+		Home = GetActorLocation();
 	}
+}
+
+void ADebrisBarrel::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADebrisBarrel, bGone);
+}
+
+void ADebrisBarrel::OnRep_Gone()
+{
+	ApplyGone();
+}
+
+void ADebrisBarrel::ApplyGone()
+{
+	SetActorHiddenInGame(bGone);
+	SetActorEnableCollision(!bGone);
+}
+
+void ADebrisBarrel::OnBodyHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent,
+	FVector NormalImpulse, const FHitResult& Hit)
+{
+	// Rammed hard by a boat: the fuel inside goes up.
+	const ABoatPawn* Boat = Cast<ABoatPawn>(OtherActor);
+	if (Boat != nullptr && !bGone && ExplodeAt < 0.f && FMath::Abs(Boat->GetForwardSpeed()) > 900.f)
+	{
+		ExplodeAt = ServerSeconds(GetWorld()) + 0.05f;
+	}
+}
+
+void ADebrisBarrel::Blow()
+{
+	ExplodeAt = -1.f;
+	bGone = true;
+	ApplyGone();
+	Body->SetSimulatePhysics(false);
+	ReturnAt = ServerSeconds(GetWorld()) + 20.f;
+	// A fuel drum: a smaller blast than a torpedo, but it sets off its neighbours.
+	BoatBlast::Detonate(GetWorld(), GetActorLocation(), 650.f, 25.f, 800000.f, nullptr);
 }
 
 void ADebrisBarrel::Tick(float DeltaSeconds)
@@ -129,6 +173,25 @@ void ADebrisBarrel::Tick(float DeltaSeconds)
 	if (!HasAuthority())
 	{
 		return; // Clients just watch the replicated motion.
+	}
+
+	const float Now = ServerSeconds(GetWorld());
+	if (ExplodeAt > 0.f && Now >= ExplodeAt)
+	{
+		Blow();
+		return;
+	}
+	if (bGone)
+	{
+		if (Now >= ReturnAt)
+		{
+			// Floats back in where it started.
+			bGone = false;
+			ApplyGone();
+			SetActorLocationAndRotation(Home + FVector(0.f, 0.f, 80.f), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
+			Body->SetSimulatePhysics(true);
+		}
+		return;
 	}
 
 	// A light, crude buoyancy: enough to make barrels ride the swell and come
@@ -157,6 +220,16 @@ void ADebrisBarrel::PushFromBlast(const FVector& Origin, float Radius, float Imp
 	if (Distance > Radius)
 	{
 		return;
+	}
+
+	if (bGone)
+	{
+		return;
+	}
+	// Close to a blast, the drum goes up too, a moment later: chain reactions.
+	if (Distance < Radius * 0.6f && Distance > 10.f && ExplodeAt < 0.f)
+	{
+		ExplodeAt = ServerSeconds(GetWorld()) + FMath::FRandRange(0.15f, 0.35f);
 	}
 
 	const float Falloff = FMath::Clamp(1.f - Distance / Radius, 0.f, 1.f);
@@ -207,6 +280,26 @@ ARaceEnvironment::ARaceEnvironment()
 	Haze = CreateDefaultSubobject<UExponentialHeightFogComponent>(TEXT("Haze"));
 	Haze->SetupAttachment(SceneRoot);
 	Haze->SetRelativeLocation(FVector(0.f, 0.f, 200.f));
+}
+
+void ARaceEnvironment::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Only matters when the track is turned round mid-session: the next
+	// environment builds its own sea, land and hazards.
+	if (EndPlayReason == EEndPlayReason::Destroyed)
+	{
+		for (const TWeakObjectPtr<AActor>& Actor : Spawned)
+		{
+			if (Actor.IsValid()) { Actor->Destroy(); }
+		}
+		for (const TWeakObjectPtr<ABoatMine>& Mine : SeaMines)
+		{
+			if (Mine.IsValid()) { Mine->Destroy(); }
+		}
+		if (Water != nullptr) { Water->Destroy(); }
+		if (Terrain != nullptr) { Terrain->Destroy(); }
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ARaceEnvironment::BeginPlay()
@@ -267,6 +360,9 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		Moon->SetVisibility(true);
 		// Only the moon throws shadows: two shadowed lights halve the frame rate.
 		Sun->SetCastShadows(false);
+		// And the moon is the light the water and glass reflect.
+		Moon->ForwardShadingPriority = 1;
+		Sun->ForwardShadingPriority = 0;
 	}
 	else
 	{
@@ -276,7 +372,12 @@ void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 		Moon->SetIntensity(0.f);
 		Moon->SetVisibility(false);
 		Sun->SetCastShadows(true);
+		Moon->ForwardShadingPriority = 0;
+		Sun->ForwardShadingPriority = 1;
 	}
+	Moon->MarkRenderStateDirty();
+	Sun->MarkRenderStateDirty();
+	BoatArt::SetAmbientLight(Look.bNight ? 0.12f : FMath::Lerp(1.f, 0.55f, Look.Overcast));
 	Sun->SetLightColor(Look.SunColor);
 	ApplyGrade(Look);
 	SkyLight->SetIntensity(Look.SkyIntensity);
@@ -883,10 +984,12 @@ void ARaceEnvironment::BuildRamps()
 	for (const FBoatRamp& Ramp : BoatTrack::GetRamps())
 	{
 		const FVector Base(Ramp.Center.X, Ramp.Center.Y, 0.0);
-		// The solid part: a 24 m x 20 m pontoon wedge, tilted nose-up. Hit it
-		// with the throttle open and the boat leaves the water.
+		// The solid part: a 24 m x 20 m pontoon wedge, tilted nose-up (positive
+		// pitch) so its top runs from just under the water at the back to 4 m
+		// at the lip, exactly under the model's deck. Hit it with the throttle
+		// open and the boat leaves the water.
 		UStaticMeshComponent* Wedge = AddPiece(Cube, Base + FVector(0.0, 0.0, 120.0),
-			FRotator(-13.f, Ramp.Yaw, 0.f), FVector(20.f, 24.f, 1.1f), FLinearColor(0.16f, 0.17f, 0.18f), true);
+			FRotator(13.f, Ramp.Yaw, 0.f), FVector(20.f, 24.f, 1.1f), FLinearColor(0.16f, 0.17f, 0.18f), true);
 		Float(Wedge, Ramp.Center, 120.f, Ramp.Yaw, false);
 		// The pitch has to survive the bobbing.
 		FloatingPieces.Last().bTilts = false;
@@ -1066,6 +1169,7 @@ void ARaceEnvironment::SpawnServerActors()
 		const FVector Location(Point.X, Point.Y, 50.0);
 		if (AWeaponCrate* Crate = World->SpawnActor<AWeaponCrate>(AWeaponCrate::StaticClass(), Location, FRotator::ZeroRotator, Params))
 		{
+			Spawned.Add(Crate);
 			Crate->SetUpCrate(Point, CrateTorpedoes, CrateMines, CrateRespawnSeconds);
 		}
 	}
@@ -1073,8 +1177,33 @@ void ARaceEnvironment::SpawnServerActors()
 	for (const FVector2D& Point : BoatTrack::GetDebrisPoints())
 	{
 		const FVector Location(Point.X, Point.Y, 80.0);
-		World->SpawnActor<ADebrisBarrel>(ADebrisBarrel::StaticClass(), Location, FRotator::ZeroRotator, Params);
+		Spawned.Add(World->SpawnActor<ADebrisBarrel>(ADebrisBarrel::StaticClass(), Location, FRotator::ZeroRotator, Params));
 	}
+
+	// A field of sea mines: in the course but off the racing line, clear of
+	// every other obstacle, so they can be dodged by anyone watching.
+	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
+	for (int32 Index = 1; Index < Gates.Num(); Index += 2)
+	{
+		const FBoatGate& A = Gates[Index];
+		const FBoatGate& B = Gates[(Index + 1) % Gates.Num()];
+		const FVector2D Along = (B.Center - A.Center).GetSafeNormal();
+		const FVector2D Point = (A.Center + B.Center) * 0.5 + FVector2D(-Along.Y, Along.X) * ((Index % 4 == 1) ? 1900.0 : -1900.0);
+		bool bClear = BayTerrain::GetClearanceMetres(Point.X / 100.0, Point.Y / 100.0) > 15.f;
+		for (const FBoatCircle& Rock : BoatTrack::GetRocks()) { bClear &= FVector2D::Distance(Point, Rock.Center) > Rock.Radius + 1500.f; }
+		for (const FBoatRamp& Ramp : BoatTrack::GetRamps()) { bClear &= FVector2D::Distance(Point, Ramp.Center) > 2500.f; }
+		for (const FBoatWhirlpool& Pool : BoatTrack::GetWhirlpools()) { bClear &= FVector2D::Distance(Point, Pool.Center) > Pool.Radius + 1000.f; }
+		for (const FBoatLog& Log : BoatTrack::GetLogs()) { bClear &= FVector2D::Distance(Point, Log.Center) > 1000.f; }
+		for (const FVector2D& Crate : BoatTrack::GetCratePoints()) { bClear &= FVector2D::Distance(Point, Crate) > 1500.f; }
+		for (const FBoatBarge& Barge : BoatTrack::GetBarges()) { bClear &= PointSegmentDistance(Point, Barge.From, Barge.To) > 3000.0; }
+		if (bClear)
+		{
+			SeaMineHomes.Add(Point);
+			SeaMines.Add(nullptr);
+			SeaMineReturn.Add(0.f);
+		}
+	}
+	UE_LOG(LogBoatRace, Log, TEXT("%d sea mines laid on the course."), SeaMineHomes.Num());
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,6 +1230,10 @@ void ARaceEnvironment::Tick(float DeltaSeconds)
 	UpdatePrecipitation(Seconds, DeltaSeconds);
 	UpdateRipples(Seconds);
 	UpdateTraffic(Seconds, DeltaSeconds);
+	if (HasAuthority())
+	{
+		UpdateSeaMines(Seconds);
+	}
 
 	// Barges run on the shared clock, so they are in the same place on every
 	// machine without anything being sent over the network.
@@ -1260,11 +1393,11 @@ void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
 	Post.BloomIntensity = Look.bNight ? 1.1f : 0.8f;
 	Post.bOverride_BloomThreshold = true;
 	Post.BloomThreshold = 1.2f;
-	// A touch of lens: vignette and chromatic fringe at the edges.
+	// A light vignette; no chromatic fringe, which only smears the edges.
 	Post.bOverride_VignetteIntensity = true;
-	Post.VignetteIntensity = 0.38f;
+	Post.VignetteIntensity = 0.3f;
 	Post.bOverride_SceneFringeIntensity = true;
-	Post.SceneFringeIntensity = 0.25f;
+	Post.SceneFringeIntensity = 0.f;
 	// Sunny Florida colour: slightly richer and warmer in good weather,
 	// flatter and cooler when it rains.
 	const bool bBright = Look.Precipitation == EPrecipitation::None && !Look.bNight && Look.FogDensity < 0.1f;
@@ -1276,12 +1409,12 @@ void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
 	Post.WhiteTemp = bBright ? 6200.f : (Look.bNight ? 7600.f : 6900.f);
 	// Motion blur sells speed; a light amount even on the low preset.
 	Post.bOverride_MotionBlurAmount = true;
-	Post.MotionBlurAmount = 0.25f;
+	Post.MotionBlurAmount = 0.12f;
 	Post.bOverride_MotionBlurMax = true;
-	Post.MotionBlurMax = 1.5f;
-	// A whisper of grain so flat colour does not look digital.
+	Post.MotionBlurMax = 0.8f;
+	// No film grain: on top of the lower resolution it read as blur.
 	Post.bOverride_FilmGrainIntensity = true;
-	Post.FilmGrainIntensity = 0.06f;
+	Post.FilmGrainIntensity = 0.f;
 }
 
 // ---------------------------------------------------------------------------
@@ -1475,4 +1608,39 @@ void ARaceEnvironment::UpdateRipples(float Seconds)
 			FVector(Size * PerMetre));
 	}
 	Ripples->BatchUpdateInstancesTransforms(0, RippleTransforms, true, true, true);
+}
+
+void ARaceEnvironment::UpdateSeaMines(float Seconds)
+{
+	if (Seconds < SeaMineCheck)
+	{
+		return;
+	}
+	SeaMineCheck = Seconds + 1.f;
+	UWorld* World = GetWorld();
+	for (int32 Index = 0; Index < SeaMineHomes.Num(); ++Index)
+	{
+		if (SeaMines[Index].IsValid())
+		{
+			continue;
+		}
+		// Gone (or never laid): lay a fresh one twenty-five seconds later.
+		if (SeaMineReturn[Index] <= 0.f)
+		{
+			SeaMineReturn[Index] = Seconds + (Seconds < 5.f ? 0.f : 25.f);
+		}
+		if (Seconds < SeaMineReturn[Index])
+		{
+			continue;
+		}
+		SeaMineReturn[Index] = 0.f;
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		const FVector2D Home = SeaMineHomes[Index];
+		if (ABoatMine* Mine = World->SpawnActor<ABoatMine>(ABoatMine::StaticClass(), FVector(Home.X, Home.Y, 0.0), FRotator::ZeroRotator, Params))
+		{
+			Mine->InitSeaMine(Home, Index * 1.7f);
+			SeaMines[Index] = Mine;
+		}
+	}
 }

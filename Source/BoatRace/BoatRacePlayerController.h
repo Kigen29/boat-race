@@ -26,6 +26,7 @@ enum class EMenuAction : uint8
 	Laps,
 	Rivals,
 	Mode,
+	Track,
 	Camera,
 	Steering,
 	Graphics,
@@ -81,6 +82,8 @@ public:
 
 	/** Free camera for screenshots: no HUD, game paused when playing solo. */
 	bool IsInPhotoMode() const { return bPhotoMode; }
+	/** True while the finish replay is on screen. */
+	bool IsReplaying() const;
 	/** Seconds since the last photo was saved (for the HUD's note). */
 	float GetSecondsSincePhoto() const { return PhotoClock; }
 	EMenuScreen GetMenuScreen() const { return MenuScreen; }
@@ -135,6 +138,13 @@ private:
 	int32 PhotoCount = 0;
 	UPROPERTY()
 	TObjectPtr<class ACameraActor> PhotoCamera;
+
+	UPROPERTY()
+	TObjectPtr<class AFinishReplay> Replay;
+
+	/** Last race phase seen, so the replay starts on the change to Results. */
+	uint8 ReplaySeenState = 0;
+	void UpdateReplay(float DeltaTime);
 	void HandleMenuInput();
 	void ActivateMenuItem(const FMenuItem& Item, int32 Step);
 	void OpenMenu(EMenuScreen Screen);

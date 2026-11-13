@@ -101,7 +101,10 @@ the game changes, or the versions will not match.
 | SPACE or left mouse | Fire a torpedo |
 | Q or right mouse | Drop a mine |
 | R | Back to your last gate |
-| SHIFT | Boost |
+| SHIFT | Nitrous boost |
+| E | Homing missile |
+| F | Flares (a missile locked on you goes after them) |
+| G | Copilot throws a grenade |
 | C / B | Camera view / look behind |
 | ESC | Pause menu (also: photo mode, settings, controls, leave, quit) |
 | ENTER | Host only: start the race |
@@ -110,7 +113,8 @@ the game changes, or the versions will not match.
 | L | Leave |
 
 Gamepad: right trigger throttle, left trigger reverse, left stick steer,
-**A** torpedo, **X** mine, **Y** reset, **Start** begin.
+**A** torpedo, **X** mine, **B** missile, **D-pad down** flares,
+**D-pad up** grenade, **Y** reset, **Start** begin.
 
 ## How a race works
 

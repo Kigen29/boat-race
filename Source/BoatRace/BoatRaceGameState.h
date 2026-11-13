@@ -89,6 +89,14 @@ public:
 	UPROPERTY(Replicated)
 	uint8 WeatherIndex = 0;
 
+	/** The second track: the bay driven clockwise. Changing it rebuilds the
+	 *  bay on every machine, so only between races. */
+	UPROPERTY(ReplicatedUsing = OnRep_Reverse)
+	bool bReverse = false;
+
+	/** Server only. */
+	void SetReverse(bool bInReverse);
+
 	ERaceWeather GetWeather() const { return RaceWeather::FromIndex(WeatherIndex); }
 
 	/** Server only. */
@@ -96,6 +104,11 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	UFUNCTION()
+	void OnRep_Reverse();
+
+	void BuildBay();
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastWreck(const FString& Victim, const FString& Attacker);

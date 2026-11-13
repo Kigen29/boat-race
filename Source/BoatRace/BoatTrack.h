@@ -62,6 +62,12 @@ namespace BoatTrack
 {
 	constexpr int32 MaxPlayers = 4;
 
+	/** The second track: the same bay driven clockwise. Every machine must
+	 *  set the same value before building the bay (the server from the travel
+	 *  URL, clients from the replicated game state). */
+	void SetReversed(bool bReversed);
+	bool IsReversed();
+
 	/** Height of the mean water surface. */
 	constexpr float WaterZ = 0.f;
 

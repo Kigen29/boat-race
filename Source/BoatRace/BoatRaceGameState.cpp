@@ -1,4 +1,6 @@
 #include "BoatRaceGameState.h"
+#include "EngineUtils.h"
+#include "BoatTrack.h"
 
 #include "RaceEnvironment.h"
 
@@ -15,6 +17,7 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ABoatRaceGameState, RaceEndTime);
 	DOREPLIFETIME(ABoatRaceGameState, TotalLaps);
 	DOREPLIFETIME(ABoatRaceGameState, WeatherIndex);
+	DOREPLIFETIME(ABoatRaceGameState, bReverse);
 	DOREPLIFETIME(ABoatRaceGameState, RivalLevel);
 	DOREPLIFETIME(ABoatRaceGameState, bTimeTrial);
 	DOREPLIFETIME(ABoatRaceGameState, bElimination);
@@ -23,15 +26,45 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 void ABoatRaceGameState::BeginPlay()
 {
 	Super::BeginPlay();
+	BoatTrack::SetReversed(bReverse);
+	BuildBay();
+}
 
-	// The bay is identical on every machine and never changes, so each one
-	// builds its own rather than having it replicated piece by piece.
+void ABoatRaceGameState::BuildBay()
+{
+	// The bay is identical on every machine, so each one builds its own
+	// rather than having it replicated piece by piece; only the direction is
+	// sent. A rebuild replaces the old one whole.
 	UWorld* World = GetWorld();
-	if (World != nullptr)
+	if (World == nullptr)
 	{
-		FActorSpawnParameters SpawnParameters;
-		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		World->SpawnActor<ARaceEnvironment>(ARaceEnvironment::StaticClass(), FTransform::Identity, SpawnParameters);
+		return;
+	}
+	for (TActorIterator<ARaceEnvironment> It(World); It; ++It)
+	{
+		It->Destroy();
+	}
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	World->SpawnActor<ARaceEnvironment>(ARaceEnvironment::StaticClass(), FTransform::Identity, SpawnParameters);
+}
+
+void ABoatRaceGameState::SetReverse(bool bInReverse)
+{
+	if (bReverse != bInReverse)
+	{
+		bReverse = bInReverse;
+		OnRep_Reverse();
+	}
+}
+
+void ABoatRaceGameState::OnRep_Reverse()
+{
+	BoatTrack::SetReversed(bReverse);
+	// Before BeginPlay the first build will use the new direction anyway.
+	if (HasActorBegunPlay())
+	{
+		BuildBay();
 	}
 }
 

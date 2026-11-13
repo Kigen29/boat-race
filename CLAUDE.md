@@ -54,7 +54,7 @@ If it says files differ, `git restore .` takes the repository's version.
 |---|---|
 | `BayTerrain` | The land: one height function from the shore table in `BoatTrackData.h`. Builds the mesh (solid near the course), plants trees and rocks, places the grandstand, cottages, lighthouse, bridge and duck, and tells boats which way the water is |
 | `BoatArt` | Loads `/Game/Models/SM_*` and gives every material slot a finish from its name (`Leaf_5CB646`): the part decides the master material (clear-coat `M_Paint`, livery `M_Livery`, grained `M_Surface` for metal/rubber/wood/rock, `M_Glass`, `M_Foam`) and the hex its colour. `Paint_*`/`Livery*` take a player's colour, `Lamp*` glow; snow and night are tints |
-| `BoatGhost` | Time trial's ghost: the best lap recorded ten times a second, saved to `Saved/BoatRace/Ghost.dat`, replayed as a see-through boat; gate splits drive the HUD's ahead/behind |
+| `BoatGhost` | The finish replay (`AFinishReplay`: every boat recorded 15 times a second, replayed at half speed from bank cameras during results) and time trial's ghost: the best lap recorded ten times a second, saved to `Saved/BoatRace/Ghost.dat`, replayed as a see-through boat; gate splits drive the HUD's ahead/behind |
 | `BoatPrefs` | Per-player settings and records in the user's Game.ini: camera, steering, graphics, rumble, best lap and race times |
 | `BoatWake` | The wake ribbon: white water behind the transom plus the two Kelvin arms (19.5°), laid down by distance travelled and drawn on the waves |
 | `RaceWeather` | The nine weathers as data, plus wind and lightning timing from the shared clock. The host's choice is one replicated byte on the game state |
@@ -62,9 +62,10 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatRivalController` | Computer rivals: an AI controller with a player state that drives the boat by setting its throttle and rudder |
 | `OceanWaves` | Six sine components, vertical displacement only. Pure maths on (position, time), so every machine agrees with nothing sent |
 | `WaterSurface` | The visible sea: a procedural mesh grid displaced every frame, following the camera in whole cells |
-| `BoatTrack` + `BoatTrackData.h` | Circuit and scenery as data. **The .h is generated — edit `Scripts/course_layout.py`, not the header** |
+| `BoatTrack` + `BoatTrackData.h` | Circuit and scenery as data. `SetReversed` turns the circuit round (gates in the other order, ramps facing the other way); the game state replicates it and every machine rebuilds the bay. **The .h is generated — edit `Scripts/course_layout.py`, not the header** |
 | `BoatPawn` | 1200 kg rigid body: four buoyancy probes, hydrodynamics, engine, rudder, networking, weapons, damage |
-| `BoatProjectile` | Torpedoes, mines, explosions, ammunition crates |
+| `BoatProjectile` | Torpedoes, mines (dropped, and the drifting sea mines), explosions, ammunition crates |
+| `BoatWeapons` | Homing missiles (lock the boat ahead, chase flares), flare bursts, the copilot's grenades |
 | `RaceEnvironment` | Sky, light, weather (rain, snow, gale, clouds, lightning), pylons, rope lanes, sea stacks, ramps, whirlpools, barges, logs, start gantry and its lights |
 | `BoatRaceGameMode` | Server rules: four-player cap, grid, countdown, laps, wreck recovery, results |
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets. Text is the engine's Roboto through Slate's font cache (sharp at any size); a compass tape and a world-space waypoint over the next gate; the menu panels |

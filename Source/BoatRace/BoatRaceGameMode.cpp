@@ -72,6 +72,7 @@ void ABoatRaceGameMode::BeginPlay()
 	if (ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>())
 	{
 		RaceState->SetWeather(RaceWeather::Parse(Choice));
+		RaceState->SetReverse(FParse::Param(FCommandLine::Get(), TEXT("Reverse")));
 		RaceState->TotalLaps = FMath::Clamp(TotalLaps, 1, 9);
 		UE_LOG(LogBoatRace, Log, TEXT("Weather: %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
 	}
@@ -109,6 +110,25 @@ void ABoatRaceGameMode::RequestRaceOption(APlayerController* Requester, int32 Op
 	else if (Option == 2)
 	{
 		RaceState->bElimination = !RaceState->bElimination;
+	}
+	else if (Option == 3)
+	{
+		RaceState->SetReverse(!RaceState->bReverse);
+		// The grid is on the other side of the start line now.
+		for (APlayerState* Player : RaceState->PlayerArray)
+		{
+			ABoatRacePlayerState* RacePlayer = Cast<ABoatRacePlayerState>(Player);
+			if (RacePlayer == nullptr)
+			{
+				continue;
+			}
+			RacePlayer->ResetRace();
+			if (ABoatPawn* Boat = Cast<ABoatPawn>(RacePlayer->GetPawn()))
+			{
+				const FTransform Grid = BoatTrack::GetGridTransform(RacePlayer->SlotIndex);
+				Boat->TeleportBoat(Grid.GetLocation(), static_cast<float>(Grid.Rotator().Yaw));
+			}
+		}
 	}
 	else
 	{

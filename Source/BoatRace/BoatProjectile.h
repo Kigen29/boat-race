@@ -175,6 +175,10 @@ public:
 
 	void InitProjectile(ABoatPawn* Shooter);
 
+	/** Server only: a hazard laid on the course, armed at once, drifting slowly
+	 *  round where it was laid, lasting until something sets it off. */
+	void InitSeaMine(const FVector2D& InHome, float Phase);
+
 	UPROPERTY(Config)
 	float ArmSeconds = 1.2f;
 
@@ -212,6 +216,9 @@ protected:
 private:
 	bool bExploded = false;
 	bool bArmSounded = false;
+	bool bSeaMine = false;
+	FVector2D Home = FVector2D::ZeroVector;
+	float DriftPhase = 0.f;
 };
 
 /**
@@ -240,7 +247,7 @@ public:
 
 	/** Chance a crate holds a shield instead of ammunition. */
 	UPROPERTY(Config)
-	float ShieldChance = 0.3f;
+	float ShieldChance = 0.2f;
 
 	UPROPERTY(Config)
 	float ShieldSeconds = 8.f;

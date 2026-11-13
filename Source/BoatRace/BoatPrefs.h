@@ -44,7 +44,8 @@ public:
 	UPROPERTY(Config)
 	float BestLap = 0.f;
 
-	/** Best whole race, per lap count ("2" -> seconds). */
+	/** Best whole race, per lap count ("2" -> seconds; "R2" reversed, and
+	 *  "RLap" the reverse circuit's best lap). */
 	UPROPERTY(Config)
 	TMap<FString, float> BestRace;
 
@@ -58,6 +59,8 @@ public:
 	bool OfferLap(float Seconds);
 	bool OfferRace(int32 Laps, float Seconds);
 	float GetBestRace(int32 Laps) const;
+	/** Best lap on the circuit being raced now (each direction has its own). */
+	float GetBestLap() const;
 
 	static const TCHAR* CameraName(EBoatCamera Camera);
 	static const TCHAR* GraphicsName(int32 Level);

@@ -21,15 +21,19 @@ namespace
 		return FVector2D(X * MetresToUU, Y * MetresToUU);
 	}
 
+	bool GReversed = false;
+
 	TArray<FBoatGate> MakeGateList()
 	{
 		const int32 Count = UE_ARRAY_COUNT(BoatTrackData::RacingLine);
 
+		// Reversed: the same start line, then the points in the other order.
 		TArray<FVector2D> Points;
 		Points.Reserve(Count);
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
-			Points.Add(FromMetres(BoatTrackData::RacingLine[Index][0], BoatTrackData::RacingLine[Index][1]));
+			const int32 From = GReversed ? (Count - Index) % Count : Index;
+			Points.Add(FromMetres(BoatTrackData::RacingLine[From][0], BoatTrackData::RacingLine[From][1]));
 		}
 
 		const double HalfWidth = BoatTrackData::GateHalfWidthMetres * MetresToUU;
@@ -46,9 +50,9 @@ namespace
 			// Averaging the neighbours puts the gate square to the racing line
 			// through the corner rather than square to one straight.
 			Gate.Forward = (Next - Prev).GetSafeNormal();
-			// The racing line runs counter-clockwise, so this perpendicular
-			// points at the inside of the circuit.
-			const FVector2D ToInside(-Gate.Forward.Y, Gate.Forward.X);
+			// Counter-clockwise, the left of the direction of travel is the
+			// inside of the circuit; reversed (clockwise) it is the right.
+			const FVector2D ToInside = GReversed ? FVector2D(Gate.Forward.Y, -Gate.Forward.X) : FVector2D(-Gate.Forward.Y, Gate.Forward.X);
 			Gate.Inner = Gate.Center + ToInside * HalfWidth;
 			Gate.Outer = Gate.Center - ToInside * HalfWidth;
 			Gates.Add(Gate);
@@ -60,7 +64,13 @@ namespace
 
 const TArray<FBoatGate>& BoatTrack::GetGates()
 {
-	static const TArray<FBoatGate> Gates = MakeGateList();
+	static TArray<FBoatGate> Gates;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != static_cast<int32>(GReversed))
+	{
+		Gates = MakeGateList();
+		BuiltFor = static_cast<int32>(GReversed);
+	}
 	return Gates;
 }
 
@@ -76,7 +86,14 @@ float BoatTrack::GetGateHalfWidth()
 
 float BoatTrack::GetLapLength()
 {
-	static const float Length = []()
+	static float Length = 0.f;
+	static int32 BuiltFor = -1;
+	if (BuiltFor == static_cast<int32>(GReversed))
+	{
+		return Length;
+	}
+	BuiltFor = static_cast<int32>(GReversed);
+	Length = []()
 	{
 		const TArray<FBoatGate>& Gates = GetGates();
 		double Total = 0.0;
@@ -93,7 +110,12 @@ float BoatTrack::GetDistanceToGate(int32 GateIndex)
 {
 	// Cumulative distance from the start line, used to rank boats and to work
 	// out how many seconds apart they are.
-	static const TArray<float> Distances = []()
+	static TArray<float> Distances;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != static_cast<int32>(GReversed))
+	{
+		BuiltFor = static_cast<int32>(GReversed);
+		Distances = []()
 	{
 		const TArray<FBoatGate>& Gates = GetGates();
 		TArray<float> Result;
@@ -106,6 +128,7 @@ float BoatTrack::GetDistanceToGate(int32 GateIndex)
 		}
 		return Result;
 	}();
+	}
 
 	const int32 Index = ((GateIndex % Distances.Num()) + Distances.Num()) % Distances.Num();
 	return Distances[Index];
@@ -130,19 +153,32 @@ const TArray<FBoatCircle>& BoatTrack::GetRocks()
 
 const TArray<FBoatRamp>& BoatTrack::GetRamps()
 {
-	static const TArray<FBoatRamp> Ramps = []()
+	// Reversed, every ramp is turned round to face the oncoming boats.
+	static TArray<FBoatRamp> Ramps;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != static_cast<int32>(GReversed))
 	{
-		TArray<FBoatRamp> Result;
+		BuiltFor = static_cast<int32>(GReversed);
+		Ramps.Reset();
 		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Ramps); ++Index)
 		{
 			FBoatRamp Ramp;
 			Ramp.Center = FromMetres(BoatTrackData::Ramps[Index][0], BoatTrackData::Ramps[Index][1]);
-			Ramp.Yaw = static_cast<float>(BoatTrackData::Ramps[Index][2]);
-			Result.Add(Ramp);
+			Ramp.Yaw = static_cast<float>(BoatTrackData::Ramps[Index][2]) + (GReversed ? 180.f : 0.f);
+			Ramps.Add(Ramp);
 		}
-		return Result;
-	}();
+	}
 	return Ramps;
+}
+
+void BoatTrack::SetReversed(bool bReversed)
+{
+	GReversed = bReversed;
+}
+
+bool BoatTrack::IsReversed()
+{
+	return GReversed;
 }
 
 const TArray<FBoatWhirlpool>& BoatTrack::GetWhirlpools()

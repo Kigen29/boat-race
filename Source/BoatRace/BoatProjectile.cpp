@@ -588,6 +588,17 @@ void ABoatMine::InitProjectile(ABoatPawn* Shooter)
 	DropTime = ServerNow(GetWorld());
 }
 
+void ABoatMine::InitSeaMine(const FVector2D& InHome, float Phase)
+{
+	FiredBy = nullptr;
+	Home = InHome;
+	Anchor = InHome;
+	DriftPhase = Phase;
+	bSeaMine = true;
+	bArmSounded = true; // no beep for these
+	DropTime = ServerNow(GetWorld()) - ArmSeconds;
+}
+
 void ABoatMine::BeginPlay()
 {
 	Super::BeginPlay();
@@ -619,6 +630,11 @@ void ABoatMine::Tick(float DeltaSeconds)
 
 	const float Now = ServerNow(World);
 	const float Age = Now - DropTime;
+	if (bSeaMine && HasAuthority())
+	{
+		// Drifting slowly on a six-metre circle.
+		Anchor = Home + FVector2D(FMath::Sin(Now * 0.07f + DriftPhase), FMath::Cos(Now * 0.05f + DriftPhase)) * 600.0;
+	}
 	FloatAt(this, Anchor, Now, 30.f);
 
 	// The lamp blinks slowly while it arms, then fast once it is live.
@@ -662,7 +678,7 @@ void ABoatMine::Tick(float DeltaSeconds)
 		}
 	}
 
-	if (Age > LifetimeSeconds)
+	if (!bSeaMine && Age > LifetimeSeconds)
 	{
 		Destroy(); // Sinks harmlessly rather than littering the course all race.
 	}
@@ -780,11 +796,23 @@ void AWeaponCrate::Tick(float DeltaSeconds)
 		}
 		if (FVector::Dist(Boat->GetRaceLocation(), GetActorLocation()) <= PickupRadius)
 		{
-			// Some crates hold a shield instead of ammunition.
-			if (FMath::FRand() < ShieldChance)
+			// What is inside: a shield, a missile with flares, grenades, or
+			// the usual torpedoes and mines.
+			const float Roll = FMath::FRand();
+			if (Roll < ShieldChance)
 			{
 				Boat->GrantShield(ShieldSeconds);
 				Boat->NotifyPickup(1, 0, 0);
+			}
+			else if (Roll < ShieldChance + 0.25f)
+			{
+				Boat->GiveSpecials(1, 1, 0);
+				Boat->NotifyPickup(2, 0, 0);
+			}
+			else if (Roll < ShieldChance + 0.45f)
+			{
+				Boat->GiveSpecials(0, 0, 3);
+				Boat->NotifyPickup(3, 0, 0);
 			}
 			else
 			{
