@@ -47,7 +47,7 @@ cat > "$GAME_DIR/host.sh" <<'HOST'
 #!/usr/bin/env bash
 # Host a race: you play, and up to three others join you on UDP port 7777.
 cd "$(dirname "${BASH_SOURCE[0]}")"
-exec ./BoatRace.sh "/Engine/Maps/Entry?listen" -log -windowed -ResX=1600 -ResY=900 "$@"
+exec ./BoatRace.sh "/Engine/Maps/Entry?listen" -log -fullscreen "$@"
 HOST
 
 cat > "$GAME_DIR/join.sh" <<'JOIN'
@@ -58,7 +58,7 @@ if [ -z "${1:-}" ]; then
 	echo "Usage: ./join.sh <host address>   e.g. ./join.sh 192.168.1.20" >&2
 	exit 1
 fi
-exec ./BoatRace.sh "$1" -log -windowed -ResX=1600 -ResY=900 "${@:2}"
+exec ./BoatRace.sh "$1" -log -fullscreen "${@:2}"
 JOIN
 
 cat > "$GAME_DIR/HOW_TO_PLAY.txt" <<'HOWTO'

@@ -118,6 +118,8 @@ public:
 	/** The boat the garage is showing (owned or not). */
 	FBoatLoadout GetGarageLoadout() const;
 	int32 GetGarageBoat() const { return GarageBoat; }
+	/** The menus are looking into the boathouse rather than at the race. */
+	bool IsShowroomView() const;
 	/** A line under the garage ("Not enough coins"), and its age. */
 	const FString& GetGarageMessage(float& OutAge) const;
 
@@ -180,6 +182,7 @@ private:
 
 	// The garage: which boat, paint and flame are being looked at, the
 	// loadout last sent to the server, and the turntable camera.
+	bool bGraphicsApplied = false;
 	int32 GarageBoat = 0;
 	int32 GaragePaint = 0;
 	int32 GarageFlame = 0;
@@ -188,11 +191,12 @@ private:
 	bool bLoadoutSent = false;
 	FBoatLoadout SentLoadout;
 	bool bGarageView = false;
-	float GarageOrbit = 30.f;
 	UPROPERTY()
 	TObjectPtr<class ACameraActor> GarageCamera;
 	UPROPERTY()
 	TObjectPtr<class ACourseCoins> CourseCoins;
+	UPROPERTY()
+	TObjectPtr<class AGarageShowroom> Showroom;
 	FScoreCard ScoreCard;
 
 	void SendLoadout(const FBoatLoadout& Loadout);

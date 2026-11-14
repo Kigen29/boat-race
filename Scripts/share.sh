@@ -58,7 +58,7 @@ cat > "\$HOME/.local/share/applications/boatrace.desktop" <<DESKTOP
 Type=Application
 Name=Boat Race
 Comment=Four-player powerboat racing
-Exec=\$GAME/BoatRace.sh -windowed -ResX=1600 -ResY=900
+Exec=env SDL_VIDEO_WAYLAND_SCALE_TO_DISPLAY=1 \$GAME/BoatRace.sh -fullscreen
 Path=\$GAME
 Terminal=false
 Categories=Game;

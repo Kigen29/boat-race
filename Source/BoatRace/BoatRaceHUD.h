@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "BoatRacePlayerController.h"
 #include "BoatRaceHUD.generated.h"
 
 class ABoatPawn;
@@ -72,7 +73,7 @@ private:
 	void DrawPanel(float X, float Y, float W, float H, float Scale, float Alpha = 0.72f);
 	void DrawTriangle(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color);
 	/** Width and height of a label as DrawLabel would draw it. */
-	FVector2D MeasureLabel(const FString& Text, float Size, bool bLarge) const;
+	FVector2D MeasureLabel(const FString& Text, float Size, bool bLarge, bool bItalic = false) const;
 	void DrawNameTags(float Scale);
 	void DrawDamageEdge(const ABoatPawn* Boat, float Width, float Height);
 	void DrawStartLights(const ABoatRaceGameState* RaceState, float Width, float Height, float Scale);
@@ -85,7 +86,20 @@ private:
 
 	/** Text with a drop shadow. Align: 0 left, 0.5 centred, 1 right of X. */
 	void DrawLabel(const FString& Text, float X, float Y, float Size, const FLinearColor& Color,
-		float Align = 0.f, bool bLarge = false);
+		float Align = 0.f, bool bLarge = false, bool bItalic = false);
+
+	// The menus' racing-game look.
+	/** A parallelogram leaning right, the shape of every tile and bar. */
+	void DrawSkew(float X, float Y, float W, float H, const FLinearColor& Color);
+	void DrawSkewGradient(float X, float Y, float W, float H, const FLinearColor& Top, const FLinearColor& Bottom);
+	void DrawCircle(const FVector2D& Centre, float Radius, const FLinearColor& Color);
+	/** A white key cap and what it does; advances X past both. */
+	void DrawKeyChip(const FString& Key, const FString& Action, float& X, float Y, float Scale);
+	/** The screen's name in heavy italics and the coin wallet. */
+	void DrawTopBar(const FString& Title, float Width, float Scale);
+	void DrawPromptBar(EMenuScreen Screen, float Width, float Height, float Scale);
+	void DrawTitleScreen(const TArray<struct FMenuItem>& Items, int32 Selected, float Width, float Height, float Scale);
+	void DrawGarageCarousel(float Width, float Height, float Scale);
 	void DrawBar(float X, float Y, float Width, float Height, float Fraction, const FLinearColor& Color);
 
 	static FString FormatTime(float Seconds);

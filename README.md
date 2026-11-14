@@ -106,7 +106,9 @@ homing missiles (with a lock warning and flares to shake them), and grenades
 your copilot throws, all decided by the server. Crates hand out more. A wreck costs you about eight seconds, which is the
 point: shooting is a way to gain track position, not a score.
 
-**The garage.** Four boats, each its own Blender model and handling: the
+**The garage.** A steel boathouse over its own water slip, in a cove off
+the course: the title screen looks out of it at your boat, and the garage
+walks round the boat on the quay as you choose. Four boats, each its own Blender model and handling: the
 Interceptor (all-rounder, free), the Bullet (9 m cigarette boat, fastest flat
 out), the Hornet (F1 tunnel catamaran, quickest and sharpest, fragile) and the
 Bulldog (armoured patrol RIB). Twelve paints, six nitrous flame colours, and

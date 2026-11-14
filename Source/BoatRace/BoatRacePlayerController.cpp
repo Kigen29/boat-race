@@ -3,6 +3,7 @@
 #include "BayTerrain.h"
 #include "BoatAudio.h"
 #include "BoatCoins.h"
+#include "BoatShowroom.h"
 #include "BoatGhost.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -101,6 +102,15 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	UpdateTimeTrial(DeltaTime);
+	// Once the window exists its size is known: size the render to it.
+	if (!bGraphicsApplied && GetWorld()->GetRealTimeSeconds() > 1.0)
+	{
+		bGraphicsApplied = true;
+		if (const UBoatPrefs* GraphicsPrefs = UBoatPrefs::Get(this))
+		{
+			GraphicsPrefs->ApplyGraphics();
+		}
+	}
 	// Test hook: -Garage=N opens the garage on boat N a few seconds in.
 	static int32 TestGarageBoat = -2;
 	if (TestGarageBoat == -2)
@@ -585,6 +595,22 @@ void ABoatRacePlayerController::HandleMenuInput()
 		if (WasInputKeyJustPressed(EKeys::Right) || WasInputKeyJustPressed(EKeys::D) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Right))
 		{
 			ActivateMenuItem(Selected, 1);
+		}
+	}
+	else
+	{
+		// The title screen's tiles run left to right; in the garage, left and
+		// right on any line flick through the boats.
+		const int32 Step = (WasInputKeyJustPressed(EKeys::Right) || WasInputKeyJustPressed(EKeys::D) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Right)) ? 1
+			: (WasInputKeyJustPressed(EKeys::Left) || WasInputKeyJustPressed(EKeys::A) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Left)) ? -1 : 0;
+		if (Step != 0 && MenuScreen == EMenuScreen::Main && IsOnMainMenu())
+		{
+			Move(Step);
+		}
+		else if (Step != 0 && MenuScreen == EMenuScreen::Garage)
+		{
+			GarageBoat = (GarageBoat + Step + BoatGarage::NumBoats()) % BoatGarage::NumBoats();
+			BoatAudio::Play2D(this, EBoatSound::Beep, 0.2f, 1.8f);
 		}
 	}
 	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
@@ -1371,18 +1397,31 @@ void ABoatRacePlayerController::UpdateGarage(float DeltaTime)
 		OpenMenu(EMenuScreen::None); // the lights are on: out of the garage
 	}
 
-	// In the garage the boat on the water is whatever is being looked at, so
-	// it can be seen before it is bought; everywhere else, what is owned.
-	const bool bInGarage = MenuScreen == EMenuScreen::Garage;
+	// The boat raced is always what is owned; the boathouse shows the rest.
 	if (GetPlayerState<ABoatRacePlayerState>() != nullptr)
 	{
-		SendLoadout(bInGarage ? GetGarageLoadout() : Prefs->GetLoadout());
+		SendLoadout(Prefs->GetLoadout());
 	}
 
-	// A turntable camera round the boat while the garage is open.
-	APawn* Boat = GetPawn();
-	if (bInGarage && Boat != nullptr)
+	if (Showroom == nullptr)
 	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Showroom = World->SpawnActor<AGarageShowroom>(AGarageShowroom::StaticClass(), FTransform::Identity, Params);
+	}
+
+	// The title screen and the garage look into the boathouse.
+	const bool bInGarage = MenuScreen == EMenuScreen::Garage;
+	const bool bOnTitle = IsOnMainMenu() && MenuScreen == EMenuScreen::Main && !bTypingAddress;
+	const bool bShowroomView = Showroom != nullptr && Showroom->IsReady() && (bInGarage || bOnTitle);
+	if (Showroom != nullptr)
+	{
+		Showroom->SetActive(bShowroomView);
+	}
+	if (bShowroomView)
+	{
+		const ABoatRacePlayerState* Me = GetPlayerState<ABoatRacePlayerState>();
+		Showroom->ShowLoadout(bInGarage ? GetGarageLoadout() : Prefs->GetLoadout(), Me ? Me->SlotIndex : 0);
 		if (GarageCamera == nullptr)
 		{
 			FActorSpawnParameters Params;
@@ -1391,32 +1430,32 @@ void ABoatRacePlayerController::UpdateGarage(float DeltaTime)
 			if (GarageCamera != nullptr)
 			{
 				GarageCamera->GetCameraComponent()->bConstrainAspectRatio = false;
-				GarageCamera->GetCameraComponent()->SetFieldOfView(50.f);
 			}
 		}
 		if (GarageCamera != nullptr)
 		{
-			GarageOrbit += DeltaTime * 14.f;
-			const FVector Centre = Boat->GetActorLocation() + FVector(0.f, 0.f, 80.f);
-			const FVector Offset = FRotator(0.f, Boat->GetActorRotation().Yaw + GarageOrbit, 0.f).RotateVector(FVector(1750.f, 0.f, 0.f)) + FVector(0.f, 0.f, 380.f);
-			// Aim to the left of the boat, so it sits right of the menu panel.
-			const FRotator Look = (Centre - (Centre + Offset)).Rotation() + FRotator(4.f, -13.f, 0.f);
-			GarageCamera->SetActorLocationAndRotation(Centre + Offset, Look);
+			GarageCamera->GetCameraComponent()->SetFieldOfView(bInGarage ? 55.f : 62.f);
+			GarageCamera->SetActorTransform(Showroom->GetCameraTransform(bInGarage, static_cast<float>(World->GetRealTimeSeconds())));
 			if (!bGarageView)
 			{
 				bGarageView = true;
-				SetViewTargetWithBlend(GarageCamera, 0.6f);
+				SetViewTargetWithBlend(GarageCamera, 0.f);
 			}
 		}
 	}
 	else if (bGarageView)
 	{
 		bGarageView = false;
-		if (Boat != nullptr)
+		if (APawn* Boat = GetPawn())
 		{
-			SetViewTargetWithBlend(Boat, 0.5f);
+			SetViewTargetWithBlend(Boat, 0.f);
 		}
 	}
+}
+
+bool ABoatRacePlayerController::IsShowroomView() const
+{
+	return bGarageView;
 }
 
 void ABoatRacePlayerController::BuildScoreCard()

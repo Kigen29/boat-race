@@ -282,8 +282,30 @@ def publish_biggest_mesh(folder, target):
         if editor_assets.duplicate_asset(source, target) is None:
             warn("could not publish %s as %s" % (source, target))
             return False
+    disable_nanite(target)
     editor_assets.save_asset(target)
     return True
+
+
+def disable_nanite(path):
+    """Interchange turns Nanite on for new meshes. Without Nanite (the low-spec
+    preset on integrated graphics) the engine draws Nanite meshes from a
+    simplified fallback, and on a big model like the 31 m boathouse that
+    crushes small round parts (bollards, fenders) into spikes. These models
+    are small enough to draw the ordinary way."""
+    mesh = editor_assets.load_asset(path)
+    if mesh is None:
+        return
+    try:
+        settings = mesh.get_editor_property("nanite_settings")
+        if not settings.get_editor_property("enabled"):
+            return
+        settings.set_editor_property("enabled", False)
+        subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+        subsystem.set_nanite_settings(mesh, settings, True)
+        log("Nanite off for " + path)
+    except Exception as error:  # an engine without the setting: nothing to do
+        warn("could not turn Nanite off for %s: %s" % (path, error))
 
 
 def import_models():

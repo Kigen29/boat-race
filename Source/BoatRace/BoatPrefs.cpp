@@ -2,6 +2,8 @@
 #include "BoatTrack.h"
 
 #include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "UnrealClient.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Engine/GameInstance.h"
@@ -65,19 +67,49 @@ void UBoatPrefs::ApplyGraphics() const
 	{
 		return;
 	}
+	// Sharpness first: render every pixel of the screen (fullscreen at its own
+	// resolution), anti-aliased with FXAA, which on this hardware costs the
+	// same as TAA at 80% and does not smear moving water (TSR ran at 7 fps).
+	// Textures seen at a glancing angle (the sea, the terrain) stay crisp with
+	// anisotropic filtering, and there is no motion blur.
+	const FIntPoint Screen = GEngine->GameViewport && GEngine->GameViewport->Viewport
+		? GEngine->GameViewport->Viewport->GetSizeXY() : FIntPoint(1920, 1080);
+	// Auto renders up to 2.4 million pixels (all of 1920 x 1200); bigger
+	// screens scale down. Low upscales from 70% with TAA instead.
+	const float Pixels = FMath::Max(static_cast<float>(Screen.X) * Screen.Y, 1.f);
+	int32 AutoPercent = FMath::Clamp(FMath::RoundToInt(FMath::Sqrt(2.4e6f / Pixels) * 100.f / 5.f) * 5, 50, 100);
+	int32 AntiAliasing = GraphicsQuality == 0 ? 2 : 1;
+	// Test hooks: -AA=1|2|4 and -SP=percent, to compare costs.
+	FParse::Value(FCommandLine::Get(), TEXT("AA="), AntiAliasing);
+	FParse::Value(FCommandLine::Get(), TEXT("SP="), AutoPercent);
+	const FString Common[] =
+	{
+		FString::Printf(TEXT("r.AntiAliasingMethod %d"), AntiAliasing),
+		TEXT("r.TSR.History.ScreenPercentage 100"),
+		TEXT("r.TemporalAA.Upsampling 1"),
+		TEXT("r.MaxAnisotropy 8"),
+		TEXT("r.DefaultFeature.MotionBlur 0"),
+		TEXT("r.MotionBlurQuality 0"),
+		TEXT("r.Tonemapper.Sharpen 0.35"),
+		TEXT("r.SceneColorFringeQuality 0"),
+		TEXT("r.Tonemapper.GrainQuantization 0"),
+	};
+	for (const FString& Command : Common)
+	{
+		GEngine->Exec(nullptr, *Command);
+	}
 	if (GraphicsQuality < 0)
 	{
-		// Auto: full resolution with a sharpening pass (the low-spec preset's
-		// 70% made everything soft), paid for with fewer shadow cascades.
-		static const TCHAR* const Auto[] =
+		// Auto: paid for with fewer shadow cascades.
+		const FString Auto[] =
 		{
-			TEXT("r.ScreenPercentage 100"), TEXT("r.Tonemapper.Sharpen 0.8"),
+			FString::Printf(TEXT("r.ScreenPercentage %d"), AutoPercent),
 			TEXT("r.Shadow.CSM.MaxCascades 2"), TEXT("r.Shadow.DistanceScale 0.75"),
 			TEXT("r.Shadow.MaxResolution 1024"),
 		};
-		for (const TCHAR* Command : Auto)
+		for (const FString& Command : Auto)
 		{
-			GEngine->Exec(nullptr, Command);
+			GEngine->Exec(nullptr, *Command);
 		}
 		return;
 	}
@@ -86,12 +118,15 @@ void UBoatPrefs::ApplyGraphics() const
 		Settings->SetOverallScalabilityLevel(GraphicsQuality);
 		Settings->ApplySettings(false);
 	}
-	static const int32 Percent[] = { 75, 90, 100, 100 };
+	// Low to epic: the share of the screen rendered before the upscaler.
+	static const float Scale[] = { 0.7f, 0.85f, 1.f, 1.f };
+	const int32 Percent = FMath::Clamp(FMath::RoundToInt(AutoPercent * Scale[FMath::Clamp(GraphicsQuality, 0, 3)] / 5.f) * 5, 50, 100);
 	const FString Commands[] =
 	{
-		FString::Printf(TEXT("r.ScreenPercentage %d"), Percent[FMath::Clamp(GraphicsQuality, 0, 3)]),
-		FString::Printf(TEXT("r.DefaultFeature.MotionBlur %d"), GraphicsQuality > 0 ? 1 : 0),
-		TEXT("r.Tonemapper.Sharpen 0.6"),
+		FString::Printf(TEXT("r.ScreenPercentage %d"), Percent),
+		// The scalability preset just reset these; put them back.
+		FString::Printf(TEXT("r.AntiAliasingMethod %d"), AntiAliasing),
+		TEXT("r.TSR.History.ScreenPercentage 100"),
 	};
 	for (const FString& Command : Commands)
 	{

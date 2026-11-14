@@ -1404,14 +1404,18 @@ void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
 	Post.bOverride_ColorSaturation = true;
 	Post.ColorSaturation = bBright ? FVector4(1.12, 1.12, 1.12, 1.0) : FVector4(0.92, 0.92, 0.92, 1.0);
 	Post.bOverride_ColorContrast = true;
-	Post.ColorContrast = FVector4(1.06, 1.06, 1.06, 1.0);
+	Post.ColorContrast = FVector4(1.1, 1.1, 1.1, 1.0);
+	// A racing-game split tone: highlights a touch warm, shadows a touch
+	// cool and blue, so sun on paint pops against the water.
+	Post.bOverride_ColorGainHighlights = true;
+	Post.ColorGainHighlights = Look.bNight ? FVector4(1.0, 1.0, 1.0, 1.0) : FVector4(1.03, 1.0, 0.96, 1.0);
+	Post.bOverride_ColorGainShadows = true;
+	Post.ColorGainShadows = FVector4(0.96, 1.0, 1.05, 1.0);
 	Post.bOverride_WhiteTemp = true;
 	Post.WhiteTemp = bBright ? 6200.f : (Look.bNight ? 7600.f : 6900.f);
-	// Motion blur sells speed; a light amount even on the low preset.
+	// No motion blur: it read as a soft, blurry picture.
 	Post.bOverride_MotionBlurAmount = true;
-	Post.MotionBlurAmount = 0.12f;
-	Post.bOverride_MotionBlurMax = true;
-	Post.MotionBlurMax = 0.8f;
+	Post.MotionBlurAmount = 0.f;
 	// No film grain: on top of the lower resolution it read as blur.
 	Post.bOverride_FilmGrainIntensity = true;
 	Post.FilmGrainIntensity = 0.f;

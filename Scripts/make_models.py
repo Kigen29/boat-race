@@ -776,12 +776,168 @@ def ice_floe():
 # The detailed boats live in make_boats.py; it replaces RaceBoat and Yacht.
 exec(compile(open(os.path.join(os.path.dirname(os.path.abspath(globals().get("__file__") or sys.argv[sys.argv.index("-P") + 1])), "make_boats.py")).read(), "make_boats.py", "exec"))
 
+def hangar():
+    """The garage: an open-fronted steel boathouse built over its own water
+    slip, like a race team's workshop on a marina. +X is the open front to
+    the sea; the origin is the waterline at the middle of the slip mouth.
+    30 m deep, 28 m wide, a 9 m slip with concrete quays either side, portal
+    frames, corrugated walls and roof with skylights, a travelling crane over
+    the slip, strip lights, benches, tool walls, drums, tyres and fenders."""
+    m = Model("Hangar")
+    D, HW, SLIP, QZ, EAVE, RIDGE = 30.0, 14.0, 4.5, 0.9, 9.0, 11.5
+    x0 = -D  # back wall
+    # Quays and the back floor: concrete slabs on piles, edged in yellow.
+    for side in (1, -1):
+        m.box((D, HW - SLIP, 0.5), (x0 / 2, side * (SLIP + HW) / 2, QZ - 0.25), "Concrete_A7ADB3")
+        m.box((D, 0.25, 0.04), (x0 / 2, side * (SLIP + 0.3), QZ + 0.02), "Paint_FFC107")
+        m.box((D, 0.35, 0.5), (x0 / 2, side * (SLIP + 0.12), QZ - 0.2), "Concrete_8E959C")  # quay edge
+        for x in range(int(x0) + 2, 0, 4):
+            m.cyl(0.32, 0.32, 4.0, (x, side * (SLIP + 0.5), QZ - 2.4), "Concrete_7D848B", segs=10)
+            # marina fenders: blue sausages hanging off the quay face on a line
+            m.cyl(0.2, 0.2, 0.8, (x + 2, side * (SLIP - 0.18), QZ - 0.75), "Rubber_1E5AA8", segs=16)
+            m.sphere(0.2, (x + 2, side * (SLIP - 0.18), QZ - 0.35), "Rubber_1E5AA8", segs=16, rings=8)
+            m.sphere(0.2, (x + 2, side * (SLIP - 0.18), QZ - 1.15), "Rubber_1E5AA8", segs=16, rings=8)
+            m.box((0.03, 0.03, 0.5), (x + 2, side * (SLIP - 0.12), QZ - 0.05), "Rope_ECEFF1")
+        for x in range(int(x0) + 4, 4, 6):
+            m.cyl(0.17, 0.14, 0.42, (x, side * (SLIP + 0.75), QZ + 0.21), "Steel_8D99A3", segs=20)
+            m.cyl(0.22, 0.22, 0.07, (x, side * (SLIP + 0.75), QZ + 0.45), "Steel_FFC107", segs=20)
+    m.box((6.0, 2 * SLIP, 0.5), (x0 + 3.0, 0, QZ - 0.25), "Concrete_A7ADB3")
+    m.box((0.25, 2 * SLIP, 0.04), (x0 + 6.1, 0, QZ + 0.02), "Paint_FFC107")
+    slip_back = x0 + 6.0
+    # Slipway ramp down into the water at the back of the slip.
+    m.box((4.0, 2 * SLIP - 0.4, 0.3), (slip_back + 1.6, 0, -0.4), "Concrete_8E959C", rot=(0, 14, 0))
+
+    # Portal frames every 6 m: I-section columns and pitched rafters.
+    def ibeam(a, b, depth=0.5, width=0.3, mat="Steel_37474F"):
+        a, b = Vector(a), Vector(b)
+        d = b - a
+        rot = d.to_track_quat("Z", "Y").to_euler()
+        r = (math.degrees(rot.x), math.degrees(rot.y), math.degrees(rot.z))
+        mid = tuple((a + b) / 2)
+        m.box((depth, width, d.length), mid, mat, rot=r)
+    for k in range(6):
+        x = x0 + k * 6.0
+        for side in (1, -1):
+            ibeam((x, side * HW, QZ), (x, side * HW, EAVE))
+            ibeam((x, side * HW, EAVE), (x, 0, RIDGE), depth=0.45)
+            ibeam((x, side * (HW - 0.2), EAVE - 1.6), (x, side * (HW - 2.6), EAVE - 0.05), depth=0.25, width=0.2)  # haunch
+    # Purlins and the eaves beams.
+    for side in (1, -1):
+        for t in (0.0, 0.33, 0.66, 1.0):
+            y = side * HW * (1 - t)
+            z = EAVE + (RIDGE - EAVE) * t + 0.35
+            m.box((D, 0.15, 0.22), (x0 / 2, y, z), "Steel_546E7A")
+    # Roof: corrugated sheets with two skylight strips each side.
+    pitch = math.degrees(math.atan2(RIDGE - EAVE, HW))
+    run = math.hypot(HW, RIDGE - EAVE) + 0.6
+    for side in (1, -1):
+        for k in range(10):
+            x = x0 + 1.5 + k * 3.0
+            mat = "Window_B3E5FC" if k in (2, 7) else ("Roof_9EA7AD" if k % 2 else "Roof_A9B2B8")
+            m.box((3.0, run, 0.08), (x, side * HW / 2, (EAVE + RIDGE) / 2 + 0.55), mat, rot=(side * -pitch, 0, 0))
+        m.box((D + 0.6, 0.3, 0.3), (x0 / 2, side * (HW + 0.25), EAVE + 0.45), "Trim_ECEFF1")  # gutter
+    m.box((D + 0.6, 0.6, 0.18), (x0 / 2, 0, RIDGE + 0.62), "Trim_ECEFF1")  # ridge cap
+    # Walls: vertical corrugated cladding on three sides; a high window band.
+    for side in (1, -1):
+        for k in range(30):
+            x = x0 + 0.5 + k * 1.0
+            m.box((0.5, 0.12, EAVE - QZ - 2.5), (x, side * (HW + 0.1), QZ + (EAVE - QZ - 2.5) / 2), "Wall_CFD8DC")
+            m.box((0.5, 0.16, EAVE - QZ - 2.5), (x + 0.5, side * (HW + 0.14), QZ + (EAVE - QZ - 2.5) / 2), "Wall_B0BEC5")
+        m.box((D, 0.1, 2.0), (x0 / 2, side * (HW + 0.12), EAVE - 1.3), "Window_90CAF9")
+        for k in range(10):  # window mullions
+            m.box((0.12, 0.2, 2.0), (x0 + k * 3.0, side * (HW + 0.15), EAVE - 1.3), "Frame_263238")
+    for k in range(28):
+        y = -HW + 0.5 + k * 1.0
+        m.box((0.12, 0.5, EAVE - QZ), (x0 - 0.1, y, QZ + (EAVE - QZ) / 2), "Wall_CFD8DC" if k % 2 else "Wall_B0BEC5")
+    # Gable above the back wall, and the team banner across it.
+    gi = m.mat("Wall_B0BEC5")
+    for side in (1, -1):
+        for x, flip in ((x0 - 0.05, False), (x0 - 0.2, True)):  # both faces, so it reads from inside and out
+            v = [m.bm.verts.new(c) for c in ((x, 0, RIDGE + 0.5), (x, side * HW, EAVE), (x, 0, EAVE))]
+            f = m.bm.faces.new(v if (side > 0) != flip else v[::-1])
+            f.material_index = gi
+    m.box((0.1, 14.0, 2.2), (x0 + 0.05, 0, 6.6), "Sponsor_E53935")
+    m.box((0.12, 13.0, 1.6), (x0 + 0.08, 0, 6.6), "Sponsor_111111")
+    for k in range(6):  # chequer strip under the banner
+        m.box((0.13, 1.0, 0.4), (x0 + 0.1, -6.0 + k * 2.4, 5.3), "Sponsor_FAFAFA")
+    # The open front: a rolled-up door drum and its guide rails.
+    m.box((1.1, 2 * HW, 1.1), (0.4, 0, EAVE - 0.3), "Steel_455A64")
+    m.cyl(0.5, 0.5, 2 * HW - 1.0, (0.2, 0, EAVE - 0.9), "Steel_78909C", rot=(90, 0, 0), segs=20)
+    for side in (1, -1):
+        m.box((0.3, 0.3, EAVE - QZ), (0.15, side * (HW - 0.2), QZ + (EAVE - QZ) / 2), "Paint_FFC107")
+        for k in range(8):  # hazard stripes on the door posts
+            m.box((0.32, 0.32, 0.35), (0.15, side * (HW - 0.2), QZ + 0.5 + k * 1.0), "Paint_212121")
+
+    # Travelling crane over the slip: two runway beams, a bridge and a hoist.
+    for side in (1, -1):
+        m.box((D - 3.0, 0.4, 0.6), (x0 / 2 - 1.0, side * (SLIP + 1.6), EAVE - 1.2), "Paint_FFB300")
+    m.box((0.8, 2 * SLIP + 3.4, 0.7), (-11.0, 0, EAVE - 0.6), "Paint_FFB300")
+    m.box((1.2, 1.0, 0.9), (-11.0, 0.8, EAVE - 1.3), "Steel_37474F")
+    for dy in (-0.25, 0.25):
+        m.cyl(0.03, 0.03, 4.5, (-11.0, 0.8 + dy, EAVE - 3.9), "Steel_90A4AE", segs=6)
+    m.box((0.5, 0.8, 0.35), (-11.0, 0.8, EAVE - 6.2), "Paint_E53935")
+    for dx in (-1.6, 1.6):  # lifting slings
+        m.cyl(0.04, 0.04, 3.2, (-11.0 + dx * 0.5, 0.8, EAVE - 7.7), "Rope_FFC107", rot=(0, dx * 9, 0), segs=6)
+    # Strip lights under every rafter bay.
+    for k in range(5):
+        x = x0 + 3.0 + k * 6.0
+        for y in (-8.5, -3.0, 3.0, 8.5):
+            m.box((2.4, 0.22, 0.1), (x, y, EAVE - 0.2), "Steel_263238")
+            m.box((2.3, 0.16, 0.04), (x, y, EAVE - 0.27), "Lamp_FFFFFF")
+    # Workshop: benches and tool walls along the starboard quay, stores to port.
+    for k in range(3):
+        x = x0 + 4.0 + k * 7.5
+        m.box((3.0, 0.9, 0.08), (x, HW - 1.0, QZ + 0.92), "Wood_8D6E63")
+        m.box((2.9, 0.8, 0.7), (x, HW - 1.0, QZ + 0.45), "Panel_C62828")
+        for dy in range(4):
+            m.box((0.55, 0.75, 0.05), (x - 1.1 + dy * 0.73, HW - 1.0, QZ + 0.6), "Trim_9E9E9E")  # drawers
+        m.box((3.0, 0.06, 1.8), (x, HW - 0.1, QZ + 2.2), "Panel_37474F")  # tool board
+        for t in range(9):
+            m.box((0.05, 0.06, 0.3 + 0.2 * (t % 3)), (x - 1.3 + t * 0.32, HW - 0.16, QZ + 2.3), "Chrome_B0BEC5")
+        m.cyl(0.06, 0.06, 0.05, (x + 1.1, HW - 1.1, QZ + 1.0), "Lamp_FFE0B2", segs=10)
+    # A spare outboard on a stand and a stack of tyres beside the benches.
+    m.box((0.8, 0.8, 1.0), (x0 + 22.0, HW - 1.4, QZ + 0.5), "Steel_455A64")
+    m.box((0.75, 0.55, 0.65), (x0 + 22.0, HW - 1.4, QZ + 1.35), "Cowl_111111")
+    m.box((0.6, 0.02, 0.08), (x0 + 22.0, HW - 1.68, QZ + 1.4), "Paint_E53935")
+    for k in range(4):
+        m.cyl(0.45, 0.45, 0.28, (x0 + 25.5, HW - 1.4, QZ + 0.14 + k * 0.29), "Rubber_1A1A1A", segs=18)
+    # Port side: oil drums, crates and a fork-lift.
+    drums = ["Paint_1565C0", "Paint_FFC107", "Paint_C62828", "Paint_1565C0", "Paint_2E7D32", "Paint_FFC107"]
+    for k, mat in enumerate(drums):
+        x = x0 + 2.0 + (k % 3) * 0.8
+        y = -HW + 1.2 + (k // 3) * 0.8
+        m.cyl(0.29, 0.29, 0.88, (x, y, QZ + 0.44), mat, segs=14)
+        m.cyl(0.3, 0.3, 0.03, (x, y, QZ + 0.6), "Steel_37474F", segs=14)
+    for k in range(5):
+        m.box((1.1, 1.1, 0.9), (x0 + 8.0 + (k % 3) * 1.2, -HW + 1.3, QZ + 0.45 + (k // 3) * 0.9), "Box_A1887F")
+    fx, fy = x0 + 16.0, -HW + 3.0
+    m.box((2.2, 1.1, 1.0), (fx, fy, QZ + 0.75), "Paint_FF8F00")
+    m.box((0.8, 1.0, 0.9), (fx - 0.6, fy, QZ + 1.65), "Paint_FF8F00")
+    for dy in (-0.45, 0.45):
+        m.box((0.08, 0.08, 2.3), (fx - 0.2, fy + dy, QZ + 1.95), "Steel_263238")  # roof posts
+        m.box((0.08, 0.08, 2.6), (fx + 1.2, fy + dy * 0.6, QZ + 1.5), "Steel_263238")  # mast
+        m.box((1.2, 0.12, 0.05), (fx + 1.85, fy + dy * 0.6, QZ + 0.3), "Steel_263238")  # forks
+    m.box((1.3, 1.2, 0.06), (fx - 0.2, fy, QZ + 3.1), "Steel_263238")
+    for dx, dy in ((0.7, 0.58), (0.7, -0.58), (-0.8, 0.58), (-0.8, -0.58)):
+        m.cyl(0.3, 0.3, 0.22, (fx + dx, fy + dy, QZ + 0.3), "Rubber_1A1A1A", rot=(90, 0, 0), segs=14)
+    # Life rings on the columns and a ladder down into the slip.
+    for x in (x0 + 6.0, x0 + 18.0):
+        for side in (1, -1):
+            m.cyl(0.38, 0.38, 0.12, (x + 0.3, side * (HW - 0.5), QZ + 1.8), "Paint_FF5722", rot=(0, 90, 0), segs=16)
+    for k in range(6):
+        m.box((0.05, 0.6, 0.05), (-6.0, SLIP - 0.05, QZ - 0.1 - k * 0.35), "Chrome_B0BEC5")
+    for dy in (-0.3, 0.3):
+        m.box((0.06, 0.06, 2.2), (-6.0, SLIP - 0.05 + dy, QZ - 0.9), "Chrome_B0BEC5")
+    obj = m.export()
+    return obj
+
+
 BUILD = [lambda: round_tree("TreeRound", "Leaf_5CB646", 3, 9.0),
          lambda: round_tree("TreeTall", "Leaf_3F9B3A", 11, 12.0), pine, palm, bush,
          lambda: rock("RockA", 21, (1.4, 1.0, 0.8), True), lambda: rock("RockB", 22, (1.0, 1.1, 1.2), False),
          lambda: rock("RockC", 23, (1.8, 1.2, 0.6), True), sea_stack, pylon, rope_float, ramp, start_gantry,
          barge, cottage, lighthouse, pier, grandstand, tent, flag, banner, bridge, duck,
-         torpedo, mine, crate, barrel, log, ice_floe] + BOATS
+         torpedo, mine, crate, barrel, log, ice_floe, hangar] + BOATS
 
 
 def render_previews(objects):

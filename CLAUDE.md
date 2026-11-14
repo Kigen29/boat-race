@@ -24,7 +24,10 @@ Four-player armed powerboat racing for Unreal Engine 5. Code-only: there is no
 | Memory | 14 GB, shared with the graphics |
 | Engine | Unreal Engine 5.9.0 preview-1, unpacked under `~/Downloads/` |
 
-Integrated graphics means the low preset is required: `Scripts/low_spec.sh`
+The screen is 1920 x 1200 at 167% scaling: a window gets stretched by the
+compositor and looks soft, so the game runs fullscreen at native resolution
+(Auto graphics: FXAA at 100%; TSR measured 7 fps, TAA at 80% the same speed as
+FXAA at 100% but smeared moving water). Integrated graphics means the low preset is required: `Scripts/low_spec.sh`
 turns off Lumen, virtual shadow maps, volumetric cloud and fog, drops to 70%
 screen percentage and shrinks the water mesh. `Scripts/setup.sh` applies it
 automatically when Vulkan reports an integrated device.
@@ -33,7 +36,7 @@ automatically when Vulkan reports an integrated device.
 
 ```bash
 bash Scripts/setup.sh          # engine lookup, graphics preset, build, assets
-Scripts/play.sh                # play (H host, J join, ENTER solo)
+Scripts/play.sh                # play fullscreen at native resolution (BOATRACE_WINDOWED=1 for a window)
 Scripts/play.sh host           # host straight away
 Scripts/test_4_players.sh      # four windows on one machine (needs a real GPU)
 ```
@@ -57,6 +60,7 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatGhost` | The finish replay (`AFinishReplay`: every boat recorded 15 times a second, replayed at half speed from bank cameras during results) and time trial's ghost: the best lap recorded ten times a second, saved to `Saved/BoatRace/Ghost.dat`, replayed as a see-through boat; gate splits drive the HUD's ahead/behind |
 | `BoatPrefs` | Per-player settings and records in the user's Game.ini: camera, steering, graphics, rumble, best lap and race times, plus the wallet, owned boats/paints/flames, upgrade levels and the top-ten leaderboard (`Persist` writes at once; test runs never write) |
 | `BoatGarage` | The garage as data: four boat classes (model, length, handling multipliers, price), paints, flames, upgrade costs and effects; `FBoatLoadout` is replicated on the player state and the boat fits it (`ABoatPawn::UpdateLoadout`) |
+| `BoatShowroom` | The boathouse (Blender "Hangar") placed in a cove clear of the course, with the browsed boat floating in its slip and work lights; the title screen and garage look through it |
 | `BoatCoins` | The course coins: local to each machine, only its own boat collects; magnet power-up |
 | `BoatWake` | The wake ribbon: white water behind the transom plus the two Kelvin arms (19.5°), laid down by distance travelled and drawn on the waves |
 | `RaceWeather` | The nine weathers as data, plus wind and lightning timing from the shared clock. The host's choice is one replicated byte on the game state |

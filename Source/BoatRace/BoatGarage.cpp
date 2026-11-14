@@ -6,7 +6,7 @@ namespace
 {
 	// Balanced so each boat wins somewhere: the Bullet on the straights, the
 	// Hornet in the narrows, the Bulldog when the weapons come out.
-	const FBoatClass Boats[] =
+	const FBoatClass GarageBoats[] =
 	{
 		{ TEXT("Interceptor"), TEXT("RaceBoat"),  TEXT("7 m twin-step offshore racer. Good at everything."),
 			770.f, 1.00f, 1.00f, 1.00f, 1.00f, 0 },
@@ -18,8 +18,8 @@ namespace
 			780.f, 0.95f, 0.98f, 0.95f, 1.55f, 1000 },
 	};
 
-	struct FNamedColour { const TCHAR* Name; FLinearColor Colour; };
-	const FNamedColour Paints[] =
+	struct FGarageColour { const TCHAR* Name; FLinearColor Colour; };
+	const FGarageColour GaragePaints[] =
 	{
 		{ TEXT("Team colour"),   FLinearColor::Black },
 		{ TEXT("Racing red"),    FLinearColor(0.75f, 0.03f, 0.03f) },
@@ -35,7 +35,7 @@ namespace
 		{ TEXT("Gloss black"),   FLinearColor(0.012f, 0.012f, 0.014f) },
 		{ TEXT("Gold"),          FLinearColor(0.75f, 0.5f, 0.12f) },
 	};
-	const FNamedColour Flames[] =
+	const FGarageColour GarageFlames[] =
 	{
 		{ TEXT("Nitrous blue"),  FLinearColor(1.5f, 4.f, 14.f) },
 		{ TEXT("Toxic green"),   FLinearColor(2.f, 12.f, 1.5f) },
@@ -46,19 +46,19 @@ namespace
 	};
 }
 
-int32 BoatGarage::NumBoats() { return UE_ARRAY_COUNT(Boats); }
-const FBoatClass& BoatGarage::GetBoat(int32 Index) { return Boats[FMath::Clamp(Index, 0, NumBoats() - 1)]; }
+int32 BoatGarage::NumBoats() { return UE_ARRAY_COUNT(GarageBoats); }
+const FBoatClass& BoatGarage::GetBoat(int32 Index) { return GarageBoats[FMath::Clamp(Index, 0, NumBoats() - 1)]; }
 
-int32 BoatGarage::NumPaints() { return UE_ARRAY_COUNT(Paints); }
-const TCHAR* BoatGarage::PaintName(int32 Index) { return Paints[FMath::Clamp(Index, 0, NumPaints() - 1)].Name; }
+int32 BoatGarage::NumPaints() { return UE_ARRAY_COUNT(GaragePaints); }
+const TCHAR* BoatGarage::PaintName(int32 Index) { return GaragePaints[FMath::Clamp(Index, 0, NumPaints() - 1)].Name; }
 FLinearColor BoatGarage::PaintColor(int32 Index, int32 Slot)
 {
-	return Index <= 0 || Index >= NumPaints() ? BoatTrack::GetPlayerColor(FMath::Max(Slot, 0)) : Paints[Index].Colour;
+	return Index <= 0 || Index >= NumPaints() ? BoatTrack::GetPlayerColor(FMath::Max(Slot, 0)) : GaragePaints[Index].Colour;
 }
 
-int32 BoatGarage::NumFlames() { return UE_ARRAY_COUNT(Flames); }
-const TCHAR* BoatGarage::FlameName(int32 Index) { return Flames[FMath::Clamp(Index, 0, NumFlames() - 1)].Name; }
-FLinearColor BoatGarage::FlameColor(int32 Index) { return Flames[FMath::Clamp(Index, 0, NumFlames() - 1)].Colour; }
+int32 BoatGarage::NumFlames() { return UE_ARRAY_COUNT(GarageFlames); }
+const TCHAR* BoatGarage::FlameName(int32 Index) { return GarageFlames[FMath::Clamp(Index, 0, NumFlames() - 1)].Name; }
+FLinearColor BoatGarage::FlameColor(int32 Index) { return GarageFlames[FMath::Clamp(Index, 0, NumFlames() - 1)].Colour; }
 
 const TCHAR* BoatGarage::UpgradeName(EUpgrade Upgrade)
 {

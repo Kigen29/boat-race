@@ -16,12 +16,12 @@
 
 namespace
 {
-	constexpr float PickupRadius = 650.f;
-	constexpr float MagnetRadius = 3500.f;
-	constexpr float ReturnSeconds = 25.f;
+	constexpr float CoinPickupRadius = 650.f;
+	constexpr float CoinMagnetRadius = 3500.f;
+	constexpr float CoinReturnSeconds = 25.f;
 
 	/** True when nothing else is within Margin of the spot and it is open water. */
-	bool IsClear(const FVector2D& Spot)
+	bool IsClearForCoin(const FVector2D& Spot)
 	{
 		if (BayTerrain::GetClearanceMetres(Spot.X / 100.0, Spot.Y / 100.0) < 14.f)
 		{
@@ -122,7 +122,7 @@ void ACourseCoins::Build()
 			default: break;
 			}
 			const FVector2D Spot = From.Center + Along * T + Across * Side;
-			if (IsClear(Spot))
+			if (IsClearForCoin(Spot))
 			{
 				Spots.Add(Spot);
 			}
@@ -183,7 +183,7 @@ void ACourseCoins::Tick(float DeltaSeconds)
 	const APlayerController* Local = World->GetFirstPlayerController();
 	const ABoatPawn* Boat = Local ? Cast<ABoatPawn>(Local->GetPawn()) : nullptr;
 	const FVector2D BoatXY = Boat ? FVector2D(Boat->GetActorLocation()) : FVector2D(1e9, 1e9);
-	const float Reach = IsMagnetOn() ? MagnetRadius : PickupRadius;
+	const float Reach = IsMagnetOn() ? CoinMagnetRadius : CoinPickupRadius;
 
 	// Pick-ups are checked every frame; the coins are only moved twenty times
 	// a second, since every move re-sends the whole instance buffer.
@@ -202,7 +202,7 @@ void ACourseCoins::Tick(float DeltaSeconds)
 		const bool bThere = BackAt[Index] <= 0.f;
 		if (bThere && bRacing && Boat != nullptr && !Boat->IsWrecked() && FVector2D::DistSquared(BoatXY, Spots[Index]) < Reach * Reach)
 		{
-			BackAt[Index] = Now + ReturnSeconds;
+			BackAt[Index] = Now + CoinReturnSeconds;
 			++Collected;
 			BoatAudio::Play2D(this, EBoatSound::Coin, 0.55f, 1.f + 0.04f * (Collected % 5));
 		}

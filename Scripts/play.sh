@@ -31,4 +31,14 @@ case "$MODE" in
 		;;
 esac
 
-exec "$EDITOR" "${ARGS[@]}" -game -log -windowed -ResX=1600 -ResY=900 ${EXTRA[@]+"${EXTRA[@]}"}
+# Fullscreen at the screen's own resolution: a smaller window on a scaled
+# (HiDPI) desktop gets stretched by the compositor and looks soft. The game
+# renders fewer pixels itself and upscales them properly (TSR).
+# BOATRACE_WINDOWED=1 Scripts/play.sh gives the old 1600 x 900 window.
+export SDL_VIDEO_WAYLAND_SCALE_TO_DISPLAY=1
+if [ "${BOATRACE_WINDOWED:-0}" = 1 ]; then
+	DISPLAY_ARGS=(-windowed -ResX=1600 -ResY=900)
+else
+	DISPLAY_ARGS=(-fullscreen)
+fi
+exec "$EDITOR" "${ARGS[@]}" -game -log "${DISPLAY_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
