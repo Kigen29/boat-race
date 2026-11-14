@@ -63,6 +63,10 @@ private:
 	void DrawGateMarker(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Height, float Scale);
 	void DrawHeadingStrip(const ABoatPawn* Boat, const ABoatRacePlayerState* RacePlayer, float Width, float Scale);
 	void DrawMenuScreen(float Width, float Height, float Scale);
+	/** The garage's right-hand card: stats, wallet, what ENTER will do. */
+	void DrawGaragePanel(float Width, float Height, float Scale);
+	/** The player's own score card beside the results. */
+	void DrawScoreCard(float Width, float Height, float Scale);
 	void DrawAddressEntry(float Width, float Height, float Scale);
 	/** A dark glass panel with a thin accent line along its top. */
 	void DrawPanel(float X, float Y, float W, float H, float Scale, float Alpha = 0.72f);

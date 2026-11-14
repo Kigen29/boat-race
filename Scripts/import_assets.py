@@ -435,7 +435,9 @@ def build_realistic_materials():
         finish(material, path, "paint material")
 
     # Livery: a mask texture (R own colour, G accent, B white) under a clear coat.
-    for tex_name in ("T_Livery", "T_LiveryCruise"):
+    liveries = sorted(f[:-4] for f in os.listdir(TEXTURES_SOURCE) if f.startswith("T_Livery") and f.endswith(".png")) \
+        if os.path.isdir(TEXTURES_SOURCE) else []
+    for tex_name in liveries:
         if os.path.isfile(os.path.join(TEXTURES_SOURCE, tex_name + ".png")):
             import_file(tex_name + ".png", MODELS_DEST, tex_name, source_dir=TEXTURES_SOURCE)
             texture = editor_assets.load_asset("%s/%s" % (MODELS_DEST, tex_name))

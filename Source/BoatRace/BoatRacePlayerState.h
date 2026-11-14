@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "BoatGarage.h"
 #include "BoatRacePlayerState.generated.h"
 
 /** One player's race and combat record. Written by the server, read by every HUD. */
@@ -19,6 +20,13 @@ public:
 	/** Grid slot and colour, 0..3. -1 until the server assigns one. */
 	UPROPERTY(Replicated)
 	int32 SlotIndex = -1;
+
+	/** The boat this player chose in their garage (rivals get one at random). */
+	UPROPERTY(Replicated)
+	FBoatLoadout Loadout;
+
+	/** Server only: a loadout has arrived, so later changes wait for the lobby. */
+	bool bLoadoutChosen = false;
 
 	/** -1 until the start line is crossed for the first time. */
 	UPROPERTY(Replicated)

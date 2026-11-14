@@ -2,6 +2,8 @@
 
 #include "BayTerrain.h"
 #include "BoatAudio.h"
+#include "BoatCoins.h"
+#include "BoatGarage.h"
 #include "BoatPawn.h"
 #include "BoatWeapons.h"
 #include "EngineUtils.h"
@@ -353,6 +355,15 @@ void ABoatRaceHUD::DrawHUD()
 // ---------------------------------------------------------------------------
 void ABoatRaceHUD::DrawMenu(float Width, float Height, float Scale)
 {
+	// The garage and the leaderboard show the boat on the water instead.
+	if (const ABoatRacePlayerController* Viewer = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+		Viewer != nullptr && (Viewer->GetMenuScreen() == EMenuScreen::Garage || Viewer->GetMenuScreen() == EMenuScreen::Leaderboard))
+	{
+		DrawRect(FLinearColor(0.f, 0.02f, 0.04f, Viewer->GetMenuScreen() == EMenuScreen::Garage ? 0.12f : 0.4f), 0.f, 0.f, Width, Height);
+		DrawMenuScreen(Width, Height, Scale);
+		return;
+	}
+
 	// The title screen: the art (or the live bay) behind a dark wash, the
 	// name on the left, and the menu panel beside it.
 	if (TitleTexture != nullptr)
@@ -410,14 +421,16 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 
 	const TCHAR* Title = Screen == EMenuScreen::Pause ? TEXT("PAUSED")
 		: Screen == EMenuScreen::Settings ? TEXT("SETTINGS")
-		: Screen == EMenuScreen::Controls ? TEXT("CONTROLS") : TEXT("MAIN MENU");
+		: Screen == EMenuScreen::Controls ? TEXT("CONTROLS")
+		: Screen == EMenuScreen::Garage ? TEXT("GARAGE")
+		: Screen == EMenuScreen::Leaderboard ? TEXT("LEADERBOARD") : TEXT("MAIN MENU");
 
 	// Rows of equal height; labels in one column, values right-aligned in another.
 	const float RowH = 50.f * Scale;
-	const float PanelW = (Screen == EMenuScreen::Controls ? 760.f : 620.f) * Scale;
+	const float PanelW = (Screen == EMenuScreen::Controls ? 760.f : Screen == EMenuScreen::Leaderboard ? 980.f : Screen == EMenuScreen::Garage ? 660.f : 620.f) * Scale;
 	const float PanelH = (120.f + Items.Num() * 50.f + 70.f) * Scale;
 	const bool bTitleScreen = RaceController->IsOnMainMenu();
-	const float X = bTitleScreen ? Width * 0.94f - PanelW : (Width - PanelW) * 0.5f;
+	const float X = Screen == EMenuScreen::Garage ? Width * 0.04f : (bTitleScreen && Screen != EMenuScreen::Leaderboard ? Width * 0.94f - PanelW : (Width - PanelW) * 0.5f);
 	const float Y = FMath::Max((Height - PanelH) * 0.5f, 20.f * Scale);
 	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.8f);
 	DrawLabel(Title, X + 40.f * Scale, Y + 30.f * Scale, 3.f * Scale, Ink, 0.f, true);
@@ -437,14 +450,15 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 			DrawRect(Accent, Row.Min.X, Row.Min.Y, 5.f * Scale, Row.GetSize().Y);
 		}
 		const bool bInfo = !Item.bEnabled && Item.Action == EMenuAction::None;
-		const FLinearColor LabelColour = bSelected ? Ink : (Item.bEnabled ? Dim : (bInfo && Screen == EMenuScreen::Controls ? Ink : Faint));
+		const bool bTable = Screen == EMenuScreen::Controls || Screen == EMenuScreen::Leaderboard;
+		const FLinearColor LabelColour = bSelected ? Ink : (Item.bEnabled ? Dim : (bInfo && bTable ? Ink : Faint));
 		const float TextY = RowY + (RowH - 4.f * Scale) * 0.5f - 15.f * Scale;
 		DrawLabel(Item.Label, X + Pad, TextY, 1.45f * Scale, LabelColour);
 		if (!Item.Value.IsEmpty())
 		{
 			const FString Value = Item.bAdjustable ? FString::Printf(TEXT("<   %s   >"), *Item.Value) : Item.Value;
 			DrawLabel(Value, X + PanelW - Pad, TextY, 1.45f * Scale,
-				Item.bAdjustable ? (bSelected ? Accent : Ink) : (Screen == EMenuScreen::Controls ? Accent : Dim), 1.f);
+				Item.bAdjustable ? (bSelected ? Accent : Ink) : (bTable || Screen == EMenuScreen::Garage ? Accent : Dim), 1.f);
 		}
 		RowY += RowH;
 	}
@@ -453,8 +467,114 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 	const FString Hint = Items.IsValidIndex(Selected) ? Items[Selected].Hint : FString();
 	DrawLabel(Hint, X + Pad, Y + PanelH - 58.f * Scale, 1.1f * Scale, Faint);
 	DrawLabel(Screen == EMenuScreen::Main ? TEXT("Arrows or mouse to choose     ENTER select")
+		: Screen == EMenuScreen::Garage ? TEXT("LEFT / RIGHT look     ENTER buy or fit     ESC back")
 		: TEXT("Arrows or mouse to choose     ENTER select     ESC back"),
 		X + Pad, Y + PanelH - 32.f * Scale, 1.f * Scale, Faint);
+
+	if (Screen == EMenuScreen::Garage)
+	{
+		DrawGaragePanel(Width, Height, Scale);
+	}
+}
+
+void ABoatRaceHUD::DrawGaragePanel(float Width, float Height, float Scale)
+{
+	const ABoatRacePlayerController* Viewer = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+	const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+	if (Viewer == nullptr || Prefs == nullptr)
+	{
+		return;
+	}
+	const FBoatLoadout Loadout = Viewer->GetGarageLoadout();
+	const FBoatClass& Boat = BoatGarage::GetBoat(Loadout.Boat);
+	const FBoatLoadout Stock = Prefs->GetLoadoutFor(Loadout.Boat, 0, 0);
+	FBoatLoadout Bare = Stock;
+	FMemory::Memzero(Bare.Levels, sizeof(Bare.Levels));
+
+	const float PanelW = 520.f * Scale, PanelH = 400.f * Scale;
+	const float X = Width * 0.96f - PanelW, Y = 40.f * Scale;
+	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.78f);
+
+	// Wallet in the corner, the boat's name and what kind of boat it is.
+	DrawLabel(FString::Printf(TEXT("%d"), Prefs->Coins), X + PanelW - 70.f * Scale, Y + 26.f * Scale, 2.f * Scale, FLinearColor(1.f, 0.78f, 0.15f, 1.f), 1.f, true);
+	DrawRect(FLinearColor(1.f, 0.7f, 0.1f, 1.f), X + PanelW - 58.f * Scale, Y + 34.f * Scale, 22.f * Scale, 22.f * Scale);
+	DrawLabel(FString(Boat.Name).ToUpper(), X + 32.f * Scale, Y + 22.f * Scale, 2.6f * Scale, Ink, 0.f, true);
+	const bool bOwned = Prefs->OwnsBoat(Loadout.Boat);
+	DrawLabel(bOwned ? (Prefs->SelectedBoat == Loadout.Boat ? TEXT("Your boat") : TEXT("Owned")) : *FString::Printf(TEXT("%d coins"), Boat.Price),
+		X + 34.f * Scale, Y + 80.f * Scale, 1.2f * Scale, bOwned ? Good : Accent);
+
+	// Stat bars: the upgrades show as a brighter tail on the stock bar.
+	static const TCHAR* const Names[] = { TEXT("TOP SPEED"), TEXT("ACCELERATION"), TEXT("HANDLING"), TEXT("ARMOUR"), TEXT("NITROUS") };
+	float Bars[5], BaseBars[5];
+	BoatGarage::GetBars(Loadout, Bars);
+	BoatGarage::GetBars(Bare, BaseBars);
+	float RowY = Y + 128.f * Scale;
+	const float BarX = X + 210.f * Scale, BarW = PanelW - 250.f * Scale;
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		DrawLabel(Names[Index], X + 32.f * Scale, RowY - 4.f * Scale, 1.05f * Scale, Dim);
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.08f), BarX, RowY, BarW, 14.f * Scale);
+		DrawRect(FLinearColor(1.f, 0.62f, 0.1f, 1.f), BarX, RowY, BarW * Bars[Index], 14.f * Scale);
+		DrawRect(FLinearColor(0.85f, 0.85f, 0.85f, 1.f), BarX, RowY, BarW * FMath::Min(BaseBars[Index], Bars[Index]), 14.f * Scale);
+		RowY += 38.f * Scale;
+	}
+
+	// The paint and flame swatches being looked at.
+	const ABoatRacePlayerState* Me = Viewer->GetPlayerState<ABoatRacePlayerState>();
+	const FLinearColor Paint = BoatGarage::PaintColor(Loadout.Paint, Me ? Me->SlotIndex : 0);
+	FLinearColor Flame = BoatGarage::FlameColor(Loadout.Flame);
+	Flame = FLinearColor(Flame.R, Flame.G, Flame.B) / FMath::Max(Flame.GetMax(), 0.01f);
+	DrawRect(Paint, X + 32.f * Scale, RowY + 6.f * Scale, 40.f * Scale, 24.f * Scale);
+	DrawLabel(BoatGarage::PaintName(Loadout.Paint), X + 84.f * Scale, RowY + 4.f * Scale, 1.05f * Scale, Dim);
+	DrawRect(Flame, X + 272.f * Scale, RowY + 6.f * Scale, 40.f * Scale, 24.f * Scale);
+	DrawLabel(BoatGarage::FlameName(Loadout.Flame), X + 324.f * Scale, RowY + 4.f * Scale, 1.05f * Scale, Dim);
+
+	float Age = 100.f;
+	const FString& Message = Viewer->GetGarageMessage(Age);
+	if (Age < 3.f && !Message.IsEmpty())
+	{
+		const bool bBad = Message.StartsWith(TEXT("Not")) || Message.StartsWith(TEXT("Buy")) || Message.StartsWith(TEXT("Already"));
+		FLinearColor Colour = bBad ? Bad : Good;
+		Colour.A = FMath::Clamp(3.f - Age, 0.f, 1.f);
+		DrawLabel(Message, X + 32.f * Scale, Y + PanelH - 44.f * Scale, 1.15f * Scale, Colour);
+	}
+}
+
+void ABoatRaceHUD::DrawScoreCard(float Width, float Height, float Scale)
+{
+	const ABoatRacePlayerController* Viewer = Cast<ABoatRacePlayerController>(GetOwningPlayerController());
+	if (Viewer == nullptr || !Viewer->GetScoreCard().bValid)
+	{
+		return;
+	}
+	const ABoatRacePlayerController::FScoreCard& Card = Viewer->GetScoreCard();
+	const float PanelW = 400.f * Scale;
+	const float PanelH = (180.f + Card.Lines.Num() * 34.f + 90.f) * Scale;
+	const float X = 30.f * Scale, Y = Height * 0.5f - PanelH * 0.5f;
+	DrawPanel(X, Y, PanelW, PanelH, Scale, 0.82f);
+	DrawLabel(TEXT("SCORE CARD"), X + 26.f * Scale, Y + 20.f * Scale, 1.9f * Scale, Ink, 0.f, true);
+	const FLinearColor Gold(1.f, 0.78f, 0.15f, 1.f);
+	float RowY = Y + 76.f * Scale;
+	for (const TPair<FString, int32>& Line : Card.Lines)
+	{
+		DrawLabel(Line.Key, X + 26.f * Scale, RowY, 1.1f * Scale, Dim);
+		if (Line.Value > 0)
+		{
+			DrawLabel(FString::Printf(TEXT("+%d"), Line.Value), X + PanelW - 26.f * Scale, RowY, 1.1f * Scale, Gold, 1.f);
+		}
+		RowY += 34.f * Scale;
+	}
+	DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.15f), X + 26.f * Scale, RowY + 4.f * Scale, PanelW - 52.f * Scale, 2.f * Scale);
+	RowY += 16.f * Scale;
+	DrawLabel(TEXT("COINS EARNED"), X + 26.f * Scale, RowY, 1.2f * Scale, Ink);
+	DrawLabel(FString::Printf(TEXT("+%d"), Card.Coins), X + PanelW - 26.f * Scale, RowY - 4.f * Scale, 1.7f * Scale, Gold, 1.f, true);
+	RowY += 44.f * Scale;
+	DrawLabel(TEXT("SCORE"), X + 26.f * Scale, RowY, 1.2f * Scale, Ink);
+	DrawLabel(FString::Printf(TEXT("%d"), Card.Score), X + PanelW - 26.f * Scale, RowY - 4.f * Scale, 1.7f * Scale, Accent, 1.f, true);
+	RowY += 48.f * Scale;
+	DrawLabel(Card.Rank == 0 ? FString(TEXT("NEW TOP SCORE!")) : Card.Rank > 0 ? FString::Printf(TEXT("Leaderboard: #%d"), Card.Rank + 1)
+		: FString(TEXT("Not on the leaderboard")), X + 26.f * Scale, RowY, 1.15f * Scale, Card.Rank == 0 ? Good : Dim);
+	DrawLabel(FString::Printf(TEXT("Wallet %d"), Card.Wallet), X + PanelW - 26.f * Scale, RowY, 1.15f * Scale, Gold, 1.f);
 }
 
 int32 ABoatRaceHUD::HitTestMenu(const FVector2D& Point) const
@@ -841,10 +961,19 @@ void ABoatRaceHUD::DrawStandingsBlock(const ABoatRaceGameState* RaceState, const
 	{
 		if (Prefs->GetBestLap() > 0.f)
 		{
-			Row += 22.f * Scale;
+			Row += 26.f * Scale;
 			DrawLabel(TEXT("RECORD"), LabelX, Row, 1.15f * Scale, Faint);
 			DrawLabel(FormatTime(Prefs->GetBestLap()), ValueX, Row, 1.15f * Scale, FLinearColor(0.3f, 1.f, 1.f, 1.f));
 		}
+	}
+	if (const ABoatRacePlayerController* Collector = Cast<ABoatRacePlayerController>(GetOwningPlayerController()); Collector && !RaceState->bTimeTrial)
+	{
+		Row += 26.f * Scale;
+		const FLinearColor Gold(1.f, 0.78f, 0.15f, 1.f);
+		DrawLabel(TEXT("COINS"), LabelX, Row, 1.15f * Scale, Faint);
+		const ACourseCoins* Field = ACourseCoins::Find(GetWorld());
+		DrawLabel(Field && Field->IsMagnetOn() ? FString::Printf(TEXT("%d   MAGNET"), Collector->GetRaceCoins())
+			: FString::FromInt(Collector->GetRaceCoins()), ValueX, Row, 1.15f * Scale, Gold);
 	}
 	Row += 42.f * Scale;
 
@@ -1291,7 +1420,7 @@ void ABoatRaceHUD::DrawResults(const ABoatRaceGameState* RaceState, const TArray
 	Y += 18.f * Scale;
 	DrawLabel(TEXT("TIME"), X + PanelW - 300.f * Scale, Y, 1.f * Scale, Faint, 1.f);
 	DrawLabel(TEXT("BEST LAP"), X + PanelW - 160.f * Scale, Y, 1.f * Scale, Faint, 1.f);
-	DrawLabel(TEXT("WRECKED"), X + PanelW - 32.f * Scale, Y, 1.f * Scale, Faint, 1.f);
+	DrawLabel(TEXT("HITS"), X + PanelW - 32.f * Scale, Y, 1.f * Scale, Faint, 1.f);
 	Y += 34.f * Scale;
 	for (int32 Index = 0; Index < Standings.Num(); ++Index)
 	{
@@ -1312,6 +1441,8 @@ void ABoatRaceHUD::DrawResults(const ABoatRaceGameState* RaceState, const TArray
 		? FString::Printf(TEXT("ENTER race again      ESC menu      back to the lobby in %d s"), SecondsLeft)
 		: FString::Printf(TEXT("The host can start another race      back to the lobby in %d s"), SecondsLeft),
 		Width * 0.5f, Y + 30.f * Scale, 1.1f * Scale, Dim, 0.5f);
+
+	DrawScoreCard(Width, Height, Scale);
 }
 
 void ABoatRaceHUD::DrawNameTags(float Scale)

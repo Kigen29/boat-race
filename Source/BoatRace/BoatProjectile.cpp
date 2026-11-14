@@ -799,20 +799,36 @@ void AWeaponCrate::Tick(float DeltaSeconds)
 			// What is inside: a shield, a missile with flares, grenades, or
 			// the usual torpedoes and mines.
 			const float Roll = FMath::FRand();
-			if (Roll < ShieldChance)
+			// Weapons most of the time, power-ups the rest: a shield, a hull
+			// repair, a full nitrous tank or a coin magnet.
+			const float Shield = ShieldChance * 0.75f;
+			if (Roll < Shield)
 			{
 				Boat->GrantShield(ShieldSeconds);
 				Boat->NotifyPickup(1, 0, 0);
 			}
-			else if (Roll < ShieldChance + 0.25f)
+			else if (Roll < Shield + 0.2f)
 			{
 				Boat->GiveSpecials(1, 1, 0);
 				Boat->NotifyPickup(2, 0, 0);
 			}
-			else if (Roll < ShieldChance + 0.45f)
+			else if (Roll < Shield + 0.35f)
 			{
 				Boat->GiveSpecials(0, 0, 3);
 				Boat->NotifyPickup(3, 0, 0);
+			}
+			else if (Roll < Shield + 0.47f)
+			{
+				Boat->Repair(40.f);
+				Boat->NotifyPickup(4, 0, 0);
+			}
+			else if (Roll < Shield + 0.57f)
+			{
+				Boat->NotifyPickup(5, 0, 0); // the tank lives with whoever drives
+			}
+			else if (Roll < Shield + 0.65f)
+			{
+				Boat->NotifyPickup(6, 0, 0);
 			}
 			else
 			{

@@ -2,6 +2,7 @@
 
 #include "BayTerrain.h"
 #include "BoatAudio.h"
+#include "BoatCoins.h"
 #include "BoatGhost.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -100,6 +101,23 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	UpdateTimeTrial(DeltaTime);
+	// Test hook: -Garage=N opens the garage on boat N a few seconds in.
+	static int32 TestGarageBoat = -2;
+	if (TestGarageBoat == -2)
+	{
+		TestGarageBoat = -1;
+		FParse::Value(FCommandLine::Get(), TEXT("Garage="), TestGarageBoat);
+	}
+	if (TestGarageBoat >= 0 && GetWorld()->GetRealTimeSeconds() > 6.0 && GetPawn() != nullptr)
+	{
+		FMenuItem Open;
+		Open.Action = EMenuAction::Garage;
+		ActivateMenuItem(Open, 1);
+		GarageBoat = FMath::Clamp(TestGarageBoat, 0, BoatGarage::NumBoats() - 1);
+		GaragePaint = 6;
+		TestGarageBoat = -1;
+	}
+	UpdateGarage(DeltaTime);
 	UpdateReplay(DeltaTime);
 
 	// Test hook: -ShotAt=60,90 saves screenshots (with the HUD) at those times.
@@ -243,7 +261,7 @@ bool ABoatRacePlayerController::IsOnMainMenu() const
 
 void ABoatRacePlayerController::OpenMenu(EMenuScreen Screen)
 {
-	if (Screen == EMenuScreen::Settings || Screen == EMenuScreen::Controls)
+	if (Screen == EMenuScreen::Settings || Screen == EMenuScreen::Controls || Screen == EMenuScreen::Garage || Screen == EMenuScreen::Leaderboard)
 	{
 		if (MenuScreen == EMenuScreen::Main || MenuScreen == EMenuScreen::Pause)
 		{
@@ -322,6 +340,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		Add(TEXT("Time trial"), EMenuAction::TimeTrial, GetGhostLapTime() > 0.f
 			? FString::Printf(TEXT("Beat your ghost: best lap %d:%05.2f"), FMath::FloorToInt(GetGhostLapTime() / 60.f), FMath::Fmod(GetGhostLapTime(), 60.f))
 			: FString(TEXT("Set a lap; then race its ghost")));
+		Add(TEXT("Garage"), EMenuAction::Garage, TEXT("Boats, paint, nitrous and upgrades"), Prefs ? FString::Printf(TEXT("%d coins"), Prefs->Coins) : FString());
+		Add(TEXT("Leaderboard"), EMenuAction::Leaderboard, TEXT("Your best ten races on this machine"));
 		Add(TEXT("Host a race"), EMenuAction::Host, TEXT("Friends on your Wi-Fi can join you"));
 		const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
 		const TArray<FFoundRace> NoRaces;
@@ -369,6 +389,11 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		{
 			Add(TEXT("Back to last gate"), EMenuAction::ResetBoat, TEXT("Stuck? Start again from the last gate"));
 		}
+		else
+		{
+			Add(TEXT("Garage"), EMenuAction::Garage, TEXT("Boats, paint, nitrous and upgrades"), Prefs ? FString::Printf(TEXT("%d coins"), Prefs->Coins) : FString());
+		}
+		Add(TEXT("Leaderboard"), EMenuAction::Leaderboard, TEXT("Your best ten races on this machine"));
 		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
 		Add(TEXT("Controls"), EMenuAction::Controls, TEXT("Keys and gamepad"));
 		Add(GetNetMode() == NM_Standalone ? TEXT("Main menu") : (bHost ? TEXT("End race for everyone") : TEXT("Leave race")),
@@ -385,6 +410,71 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		Add(TEXT("Sound effects volume"), EMenuAction::EffectsVolume, TEXT("Left / right to change"), Percent(Audio ? Audio->EffectsVolume : 1.f), true);
 		Add(TEXT("Back"), EMenuAction::Back);
 		break;
+	case EMenuScreen::Garage:
+	{
+		if (Prefs == nullptr)
+		{
+			Add(TEXT("Back"), EMenuAction::Back);
+			break;
+		}
+		const FBoatClass& Boat = BoatGarage::GetBoat(GarageBoat);
+		const bool bOwned = Prefs->OwnsBoat(GarageBoat);
+		auto PriceTag = [&](bool bHave, bool bFitted, int32 Price)
+		{
+			return bFitted ? FString(TEXT("fitted")) : (bHave ? FString(TEXT("owned")) : FString::Printf(TEXT("%d c"), Price));
+		};
+		Add(TEXT("Boat"), EMenuAction::GarageBoat,
+			bOwned ? FString::Printf(TEXT("%s  ENTER to race it"), Boat.Blurb) : FString::Printf(TEXT("%s  ENTER buys it"), Boat.Blurb),
+			FString::Printf(TEXT("%s  %s"), Boat.Name, *PriceTag(bOwned, bOwned && Prefs->SelectedBoat == GarageBoat, Boat.Price)), true);
+		const bool bPaintOwned = Prefs->OwnsPaint(GaragePaint);
+		Add(TEXT("Paint"), EMenuAction::GaragePaint, bPaintOwned ? TEXT("Topsides, stripes and helmets") : TEXT("ENTER buys this colour"),
+			FString::Printf(TEXT("%s  %s"), BoatGarage::PaintName(GaragePaint), *PriceTag(bPaintOwned, bPaintOwned && Prefs->SelectedPaint == GaragePaint, BoatGarage::PaintPrice)), true);
+		const bool bFlameOwned = Prefs->OwnsFlame(GarageFlame);
+		Add(TEXT("Nitrous flame"), EMenuAction::GarageFlame, bFlameOwned ? TEXT("The colour of the boost flames") : TEXT("ENTER buys this flame"),
+			FString::Printf(TEXT("%s  %s"), BoatGarage::FlameName(GarageFlame), *PriceTag(bFlameOwned, bFlameOwned && Prefs->SelectedFlame == GarageFlame, BoatGarage::FlamePrice)), true);
+		for (int32 Index = 0; Index < static_cast<int32>(EUpgrade::Count); ++Index)
+		{
+			const EUpgrade Upgrade = static_cast<EUpgrade>(Index);
+			const int32 Level = Prefs->GetLevel(GarageBoat, Upgrade);
+			FString Pips;
+			for (int32 Pip = 1; Pip <= BoatGarage::MaxLevel; ++Pip)
+			{
+				Pips += Pip <= Level ? TEXT("|") : TEXT(".");
+			}
+			const FString Value = Level >= BoatGarage::MaxLevel ? FString::Printf(TEXT("[%s]  max"), *Pips)
+				: FString::Printf(TEXT("[%s]  %d c"), *Pips, BoatGarage::UpgradeCost(Level + 1));
+			Add(FString::Printf(TEXT("%s upgrade"), BoatGarage::UpgradeName(Upgrade)), EMenuAction::GarageUpgrade,
+				bOwned ? FString::Printf(TEXT("%s.  ENTER buys the next level"), BoatGarage::UpgradeBlurb(Upgrade))
+					: FString(TEXT("Buy the boat first")),
+				Value, false, true, Index);
+		}
+		Add(TEXT("Back"), EMenuAction::Back, FString::Printf(TEXT("Wallet: %d coins"), Prefs->Coins));
+		break;
+	}
+	case EMenuScreen::Leaderboard:
+	{
+		const TArray<UBoatPrefs::FBoardRow> Board = Prefs ? Prefs->GetBoard() : TArray<UBoatPrefs::FBoardRow>();
+		static const TCHAR* const Places[] = { TEXT("DNF"), TEXT("1st"), TEXT("2nd"), TEXT("3rd"), TEXT("4th") };
+		for (int32 Index = 0; Index < Board.Num(); ++Index)
+		{
+			const UBoatPrefs::FBoardRow& Row = Board[Index];
+			const int32 Seconds = FMath::FloorToInt(Row.Seconds);
+			Add(FString::Printf(TEXT("%2d.  %s   %s"), Index + 1, *Row.Name.Left(14), BoatGarage::GetBoat(Row.Boat).Name), EMenuAction::None,
+				FString(), FString::Printf(TEXT("%s of %d   %d:%02d   %s   %d pts"), Places[FMath::Clamp(Row.Place, 0, 4)], Row.Racers,
+					Seconds / 60, Seconds % 60, Row.bReverse ? TEXT("rev") : TEXT("bay"), Row.Score), false, false);
+		}
+		if (Board.Num() == 0)
+		{
+			Add(TEXT("No races yet: finish one to get on the board"), EMenuAction::None, FString(), FString(), false, false);
+		}
+		if (Prefs != nullptr)
+		{
+			Add(TEXT("Career"), EMenuAction::None, FString(), FString::Printf(TEXT("%d races   %d wins   %d coins earned"),
+				Prefs->RacesRun, Prefs->RacesWon, Prefs->CoinsEarned), false, false);
+		}
+		Add(TEXT("Back"), EMenuAction::Back);
+		break;
+	}
 	case EMenuScreen::Controls:
 	{
 		static const TCHAR* const Rows[][2] =
@@ -583,7 +673,7 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->SetGraphics(((Prefs->GraphicsQuality + 1 + Step) % 5 + 5) % 5 - 1); }
 		break;
 	case EMenuAction::Rumble:
-		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->bRumble = !Prefs->bRumble; Prefs->SaveConfig(); }
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->bRumble = !Prefs->bRumble; Prefs->Persist(); }
 		break;
 	case EMenuAction::Music:
 		if (Audio) { Audio->ToggleMusic(); }
@@ -596,6 +686,78 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		break;
 	case EMenuAction::Settings:
 		OpenMenu(EMenuScreen::Settings);
+		break;
+	case EMenuAction::Garage:
+		if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+		{
+			GarageBoat = Prefs->OwnsBoat(Prefs->SelectedBoat) ? Prefs->SelectedBoat : 0;
+			GaragePaint = Prefs->SelectedPaint;
+			GarageFlame = Prefs->SelectedFlame;
+		}
+		OpenMenu(EMenuScreen::Garage);
+		break;
+	case EMenuAction::Leaderboard:
+		OpenMenu(EMenuScreen::Leaderboard);
+		break;
+	case EMenuAction::GarageBoat:
+	case EMenuAction::GaragePaint:
+	case EMenuAction::GarageFlame:
+	{
+		UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+		if (Prefs == nullptr)
+		{
+			break;
+		}
+		int32& Browse = Item.Action == EMenuAction::GarageBoat ? GarageBoat : (Item.Action == EMenuAction::GaragePaint ? GaragePaint : GarageFlame);
+		const int32 Count = Item.Action == EMenuAction::GarageBoat ? BoatGarage::NumBoats()
+			: (Item.Action == EMenuAction::GaragePaint ? BoatGarage::NumPaints() : BoatGarage::NumFlames());
+		const bool bChoose = WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar)
+			|| WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) || WasInputKeyJustPressed(EKeys::LeftMouseButton);
+		if (!bChoose)
+		{
+			Browse = (Browse + Step + Count) % Count; // left / right: look at the next one
+			break;
+		}
+		const int32 Coins = Prefs->Coins;
+		const bool bDone = Item.Action == EMenuAction::GarageBoat ? Prefs->BuyBoat(Browse)
+			: (Item.Action == EMenuAction::GaragePaint ? Prefs->BuyPaint(Browse) : Prefs->BuyFlame(Browse));
+		if (!bDone)
+		{
+			GarageSay(TEXT("Not enough coins yet: win races and collect coins on the course"), false);
+		}
+		else if (Prefs->Coins < Coins)
+		{
+			GarageSay(FString::Printf(TEXT("Bought for %d coins"), Coins - Prefs->Coins), true);
+		}
+		else
+		{
+			GarageSay(TEXT("Fitted"), true);
+		}
+		break;
+	}
+	case EMenuAction::GarageUpgrade:
+		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this))
+		{
+			const EUpgrade Upgrade = static_cast<EUpgrade>(FMath::Clamp(Item.Data, 0, 3));
+			const int32 Coins = Prefs->Coins;
+			if (!Prefs->OwnsBoat(GarageBoat))
+			{
+				GarageSay(TEXT("Buy the boat before tuning it"), false);
+			}
+			else if (Prefs->GetLevel(GarageBoat, Upgrade) >= BoatGarage::MaxLevel)
+			{
+				GarageSay(TEXT("Already at the top level"), false);
+			}
+			else if (Prefs->BuyUpgrade(GarageBoat, Upgrade))
+			{
+				GarageSay(FString::Printf(TEXT("%s level %d for %d coins"), BoatGarage::UpgradeName(Upgrade),
+					Prefs->GetLevel(GarageBoat, Upgrade), Coins - Prefs->Coins), true);
+			}
+			else
+			{
+				GarageSay(TEXT("Not enough coins yet: win races and collect coins on the course"), false);
+			}
+		}
 		break;
 	case EMenuAction::Controls:
 		OpenMenu(EMenuScreen::Controls);
@@ -1075,7 +1237,12 @@ void ABoatRacePlayerController::UpdateReplay(float DeltaTime)
 	switch (RaceState->RaceState)
 	{
 	case ERaceState::Countdown:
-		if (bEntered) { Replay->Clear(); }
+		if (bEntered)
+		{
+			Replay->Clear();
+			ScoreCard = FScoreCard();
+			if (CourseCoins != nullptr) { CourseCoins->ResetRace(); }
+		}
 		break;
 	case ERaceState::Racing:
 		Replay->Record(DeltaTime);
@@ -1090,6 +1257,10 @@ void ABoatRacePlayerController::UpdateReplay(float DeltaTime)
 		break;
 	case ERaceState::Results:
 		// Nothing to replay of a lone time trial; and a photo stays a photo.
+		if (bEntered)
+		{
+			BuildScoreCard();
+		}
 		if (bEntered && !RaceState->bTimeTrial && !bPhotoMode)
 		{
 			Replay->Record(0.f);
@@ -1112,4 +1283,213 @@ void ABoatRacePlayerController::UpdateReplay(float DeltaTime)
 		Replay->Stop();
 		break;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Garage, coins and the score card
+// ---------------------------------------------------------------------------
+void ABoatRacePlayerController::ServerSetLoadout_Implementation(FBoatLoadout Loadout)
+{
+	ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
+	const ABoatRaceGameState* RaceState = GetWorld() ? GetWorld()->GetGameState<ABoatRaceGameState>() : nullptr;
+	if (Racer == nullptr)
+	{
+		return;
+	}
+	// Mid-race, a boat stays the boat it started with; the first loadout of
+	// someone who joined late is still taken.
+	if (Racer->bLoadoutChosen && RaceState != nullptr && RaceState->RaceState == ERaceState::Racing)
+	{
+		return;
+	}
+	Racer->Loadout = BoatGarage::Sanitise(Loadout);
+	Racer->bLoadoutChosen = true;
+}
+
+void ABoatRacePlayerController::SendLoadout(const FBoatLoadout& Loadout)
+{
+	if (bLoadoutSent && Loadout == SentLoadout)
+	{
+		return;
+	}
+	bLoadoutSent = true;
+	SentLoadout = Loadout;
+	ServerSetLoadout(Loadout);
+}
+
+FBoatLoadout ABoatRacePlayerController::GetGarageLoadout() const
+{
+	const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+	return Prefs ? Prefs->GetLoadoutFor(GarageBoat, GaragePaint, GarageFlame) : FBoatLoadout();
+}
+
+const FString& ABoatRacePlayerController::GetGarageMessage(float& OutAge) const
+{
+	OutAge = GetWorld() ? static_cast<float>(GetWorld()->GetRealTimeSeconds()) - GarageMessageAt : 100.f;
+	return GarageMessage;
+}
+
+void ABoatRacePlayerController::GarageSay(const FString& Text, bool bGood)
+{
+	GarageMessage = Text;
+	GarageMessageAt = GetWorld() ? static_cast<float>(GetWorld()->GetRealTimeSeconds()) : 0.f;
+	if (bGood && !Text.StartsWith(TEXT("Fitted")))
+	{
+		BoatAudio::Play2D(this, EBoatSound::Purchase, 0.6f);
+	}
+	else if (!bGood)
+	{
+		BoatAudio::Play2D(this, EBoatSound::Beep, 0.35f, 0.5f);
+	}
+}
+
+int32 ABoatRacePlayerController::GetRaceCoins() const
+{
+	return CourseCoins != nullptr ? CourseCoins->GetCollected() : 0;
+}
+
+void ABoatRacePlayerController::UpdateGarage(float DeltaTime)
+{
+	UWorld* World = GetWorld();
+	const UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+	if (World == nullptr || Prefs == nullptr)
+	{
+		return;
+	}
+	// -NoCoins (a test hook) leaves them out, to measure what they cost.
+	if (CourseCoins == nullptr && !FParse::Param(FCommandLine::Get(), TEXT("NoCoins")))
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		CourseCoins = World->SpawnActor<ACourseCoins>(ACourseCoins::StaticClass(), FTransform::Identity, Params);
+	}
+
+	const ABoatRaceGameState* RaceState = World->GetGameState<ABoatRaceGameState>();
+	const bool bRacing = RaceState && (RaceState->RaceState == ERaceState::Countdown || RaceState->RaceState == ERaceState::Racing);
+	if (MenuScreen == EMenuScreen::Garage && bRacing)
+	{
+		OpenMenu(EMenuScreen::None); // the lights are on: out of the garage
+	}
+
+	// In the garage the boat on the water is whatever is being looked at, so
+	// it can be seen before it is bought; everywhere else, what is owned.
+	const bool bInGarage = MenuScreen == EMenuScreen::Garage;
+	if (GetPlayerState<ABoatRacePlayerState>() != nullptr)
+	{
+		SendLoadout(bInGarage ? GetGarageLoadout() : Prefs->GetLoadout());
+	}
+
+	// A turntable camera round the boat while the garage is open.
+	APawn* Boat = GetPawn();
+	if (bInGarage && Boat != nullptr)
+	{
+		if (GarageCamera == nullptr)
+		{
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			GarageCamera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), FTransform::Identity, Params);
+			if (GarageCamera != nullptr)
+			{
+				GarageCamera->GetCameraComponent()->bConstrainAspectRatio = false;
+				GarageCamera->GetCameraComponent()->SetFieldOfView(50.f);
+			}
+		}
+		if (GarageCamera != nullptr)
+		{
+			GarageOrbit += DeltaTime * 14.f;
+			const FVector Centre = Boat->GetActorLocation() + FVector(0.f, 0.f, 80.f);
+			const FVector Offset = FRotator(0.f, Boat->GetActorRotation().Yaw + GarageOrbit, 0.f).RotateVector(FVector(1750.f, 0.f, 0.f)) + FVector(0.f, 0.f, 380.f);
+			// Aim to the left of the boat, so it sits right of the menu panel.
+			const FRotator Look = (Centre - (Centre + Offset)).Rotation() + FRotator(4.f, -13.f, 0.f);
+			GarageCamera->SetActorLocationAndRotation(Centre + Offset, Look);
+			if (!bGarageView)
+			{
+				bGarageView = true;
+				SetViewTargetWithBlend(GarageCamera, 0.6f);
+			}
+		}
+	}
+	else if (bGarageView)
+	{
+		bGarageView = false;
+		if (Boat != nullptr)
+		{
+			SetViewTargetWithBlend(Boat, 0.5f);
+		}
+	}
+}
+
+void ABoatRacePlayerController::BuildScoreCard()
+{
+	ScoreCard = FScoreCard();
+	const UWorld* World = GetWorld();
+	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
+	const ABoatRacePlayerState* Me = GetPlayerState<ABoatRacePlayerState>();
+	UBoatPrefs* Prefs = UBoatPrefs::Get(this);
+	if (RaceState == nullptr || Me == nullptr || Prefs == nullptr || Me->SlotIndex < 0)
+	{
+		return;
+	}
+	int32 Racers = 0;
+	for (const APlayerState* Player : RaceState->PlayerArray)
+	{
+		const ABoatRacePlayerState* Racer = Cast<ABoatRacePlayerState>(Player);
+		Racers += Racer && Racer->SlotIndex >= 0 ? 1 : 0;
+	}
+
+	static const TCHAR* const Ordinals[] = { TEXT("1st"), TEXT("2nd"), TEXT("3rd"), TEXT("4th") };
+	const int32 Place = Me->FinishPosition;
+	const bool bPlaced = Place >= 1 && (Me->bFinished || Me->bEliminated);
+	auto Line = [this](const FString& Text, int32 Coins) { ScoreCard.Lines.Emplace(Text, Coins); ScoreCard.Coins += Coins; };
+
+	if (bPlaced)
+	{
+		Line(Racers > 1 ? FString::Printf(TEXT("Finished %s of %d"), Ordinals[FMath::Clamp(Place - 1, 0, 3)], Racers)
+			: FString(TEXT("Time trial lap")), BoatGarage::CoinsForPlace(Place, Racers));
+	}
+	else
+	{
+		Line(TEXT("Did not finish"), 0);
+	}
+	const int32 Picked = GetRaceCoins();
+	Line(FString::Printf(TEXT("Coins collected  x%d"), Picked), Picked * BoatGarage::CoinValue);
+	Line(FString::Printf(TEXT("Hits on rivals  x%d"), Me->Hits), Me->Hits * 10);
+	const bool bClean = Me->Wrecks == 0 && bPlaced;
+	if (bClean)
+	{
+		Line(TEXT("Clean race: never wrecked"), 30);
+	}
+	else if (Me->Wrecks > 0)
+	{
+		Line(FString::Printf(TEXT("Wrecked  x%d"), Me->Wrecks), 0);
+	}
+
+	static const int32 PlacePoints[] = { 1000, 700, 450, 250 };
+	ScoreCard.Score = (bPlaced && Racers > 1 ? PlacePoints[FMath::Clamp(Place - 1, 0, 3)] : 0) + Picked * 10 + Me->Hits * 60
+		+ (bClean ? 250 : 0) - Me->Wrecks * 80;
+	ScoreCard.Score = FMath::Max(ScoreCard.Score, 0);
+
+	// Test runs (the autopilot, the photo tour) drive themselves: they show a
+	// card but must not pay into, or rank on, the player's own save.
+	const bool bTestRun = FParse::Param(FCommandLine::Get(), TEXT("Autopilot")) || FParse::Param(FCommandLine::Get(), TEXT("PhotoTour"));
+	if (bTestRun)
+	{
+		ScoreCard.Rank = -1;
+	}
+	else if (RaceState->bTimeTrial || Racers <= 1)
+	{
+		// Alone there is nobody to beat; the ghost keeps the records.
+		Prefs->Coins += ScoreCard.Coins;
+		Prefs->CoinsEarned += ScoreCard.Coins;
+		Prefs->Persist();
+	}
+	else
+	{
+		ScoreCard.Rank = Prefs->RecordRace(ScoreCard.Score, Me->GetPlayerName(), Me->Loadout.Boat, bPlaced ? Place : 0, Racers,
+			Me->bFinished ? Me->FinishTime : 0.f, ScoreCard.Coins);
+	}
+	ScoreCard.Wallet = Prefs->Coins;
+	ScoreCard.bValid = true;
+	UE_LOG(LogBoatRace, Log, TEXT("Score card: %d points, %d coins (%d picked up), board rank %d, wallet %d"),
+		ScoreCard.Score, ScoreCard.Coins, Picked, ScoreCard.Rank, ScoreCard.Wallet);
 }

@@ -2,6 +2,7 @@
 
 #include "BayTerrain.h"
 #include "BoatArt.h"
+#include "BoatCoins.h"
 #include "BoatAudio.h"
 #include "BoatPrefs.h"
 #include "BoatProjectile.h"
@@ -308,10 +309,7 @@ void ABoatPawn::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdatePhysicsMode();
-	if (!bColorApplied)
-	{
-		TryApplyPlayerColor();
-	}
+	UpdateLoadout();
 
 	const float WaveTime = GetWaveTime();
 
@@ -1172,7 +1170,30 @@ void ABoatPawn::ClientPickup_Implementation(uint8 Kind, uint8 Torpedoes, uint8 M
 	case 1:  PickupMessage = TEXT("SHIELD  8 s"); break;
 	case 2:  PickupMessage = TEXT("+1 MISSILE   +1 FLARES"); break;
 	case 3:  PickupMessage = TEXT("+3 GRENADES"); break;
+	case 4:  PickupMessage = TEXT("HULL REPAIRED  +40%"); break;
+	case 5:
+		PickupMessage = TEXT("NITROUS FULL");
+		Boost = 1.f;
+		break;
+	case 6:
+		PickupMessage = TEXT("COIN MAGNET  10 s");
+		if (IsLocallyControlled())
+		{
+			if (ACourseCoins* Coins = ACourseCoins::Find(GetWorld()))
+			{
+				Coins->StartMagnet(10.f);
+			}
+		}
+		break;
 	default: PickupMessage = FString::Printf(TEXT("+%d TORPEDOES   +%d MINES"), Torpedoes, Mines); break;
+	}
+}
+
+void ABoatPawn::Repair(float Amount)
+{
+	if (HasAuthority() && !bWrecked)
+	{
+		Health = FMath::Min(Health + MaxHealth * Amount / 100.f, MaxHealth);
 	}
 }
 
@@ -1324,7 +1345,7 @@ void ABoatPawn::TryApplyPlayerColor()
 		return; // Not replicated yet; Tick will try again.
 	}
 
-	const FLinearColor Color = BoatTrack::GetPlayerColor(RacePlayer->SlotIndex);
+	const FLinearColor Color = BoatGarage::PaintColor(RacePlayer->Loadout.Paint, RacePlayer->SlotIndex);
 	SetPartColor(FlagMesh, Color);
 	if (!bUsingCustomMesh)
 	{
@@ -1341,11 +1362,79 @@ void ABoatPawn::TryApplyPlayerColor()
 	bColorApplied = true;
 }
 
-void ABoatPawn::TryLoadCustomMesh()
+void ABoatPawn::UpdateLoadout()
 {
-	// The Blender race boat by default; the Higgsfield one if asked for or if
+	const ABoatRacePlayerState* RacePlayer = GetPlayerState<ABoatRacePlayerState>();
+	if (RacePlayer == nullptr || RacePlayer->SlotIndex < 0)
+	{
+		return; // Not replicated yet; Tick will try again.
+	}
+	const FBoatLoadout Wanted = BoatGarage::Sanitise(RacePlayer->Loadout);
+	if (bLoadoutApplied && Wanted == AppliedLoadout && AppliedSlot == RacePlayer->SlotIndex)
+	{
+		return;
+	}
+	const bool bNewBoat = !bLoadoutApplied || Wanted.Boat != AppliedLoadout.Boat;
+	AppliedLoadout = Wanted;
+	AppliedSlot = RacePlayer->SlotIndex;
+	bLoadoutApplied = true;
+
+	const FBoatClass& Class = BoatGarage::GetBoat(Wanted.Boat);
+	if (bNewBoat && !BoatModel.Equals(TEXT("Higgsfield"), ESearchCase::IgnoreCase))
+	{
+		TryLoadCustomMesh(Class.Model, Class.LengthCm);
+	}
+	ApplyStats(BoatGarage::GetStats(Wanted));
+	TryApplyPlayerColor();
+
+	// The flames sit just off the transom of whichever boat it is.
+	const FLinearColor Flame = BoatGarage::FlameColor(Wanted.Flame);
+	for (int32 Index = 0; Index < NitroFlames.Num(); ++Index)
+	{
+		if (UStaticMeshComponent* Cone = NitroFlames[Index])
+		{
+			Cone->SetRelativeLocation(FVector(-SternX - 55.f, (Index == 0 ? 1.f : -1.f) * 40.f, 60.f));
+			Cone->SetMaterial(0, BoatArt::GlowMaterial(Cone, Flame));
+		}
+	}
+	if (NitroLight != nullptr)
+	{
+		NitroLight->SetRelativeLocation(FVector(-SternX - 135.f, 0.f, 80.f));
+		NitroLight->SetLightColor(FLinearColor(Flame.R, Flame.G, Flame.B) / FMath::Max(Flame.GetMax(), 0.01f));
+	}
+}
+
+void ABoatPawn::ApplyStats(const FBoatStats& Stats)
+{
+	// Multiples of the configured (shared) handling, so Config/DefaultGame.ini
+	// still tunes every boat at once.
+	const ABoatPawn* Base = GetClass()->GetDefaultObject<ABoatPawn>();
+	ReferenceTopSpeed = FMath::Max(Base->ReferenceTopSpeed, 100.f) * Stats.TopSpeed;
+	ThrustAcceleration = Base->ThrustAcceleration * Stats.Thrust;
+	TurnRate = Base->TurnRate * Stats.Turn;
+	BoostSeconds = Base->BoostSeconds * Stats.BoostSeconds;
+	BoostThrust = Base->BoostThrust * Stats.BoostThrust;
+	const float OldMax = MaxHealth;
+	MaxHealth = Base->MaxHealth * Stats.Health;
+	if (HasAuthority())
+	{
+		Health = OldMax > 0.f ? FMath::Min(Health * MaxHealth / OldMax, MaxHealth) : MaxHealth;
+	}
+	const float Weight = HullMassKg * OceanWaves::Gravity;
+	ForwardDragCoefficient = (HullMassKg * ThrustAcceleration) / (ReferenceTopSpeed * ReferenceTopSpeed);
+	PlaningLiftCoefficient = (PlaningLiftFraction * Weight) / (ReferenceTopSpeed * ReferenceTopSpeed);
+}
+
+void ABoatPawn::TryLoadCustomMesh(const TCHAR* ModelName, float LengthCm)
+{
+	// The Blender boat by default; the Higgsfield one if asked for or if
 	// the Blender models have not been imported; the placeholder otherwise.
-	UStaticMesh* Model = BoatModel.Equals(TEXT("Higgsfield"), ESearchCase::IgnoreCase) ? nullptr : BoatArt::Model(TEXT("RaceBoat"));
+	UStaticMesh* Model = BoatModel.Equals(TEXT("Higgsfield"), ESearchCase::IgnoreCase) ? nullptr : BoatArt::Model(ModelName);
+	if (Model == nullptr && FCString::Strcmp(ModelName, TEXT("RaceBoat")) != 0)
+	{
+		Model = BoatArt::Model(TEXT("RaceBoat")); // a class whose model is not imported yet
+		LengthCm = 770.f;
+	}
 	const bool bBlenderBoat = Model != nullptr;
 	if (Model == nullptr)
 	{
@@ -1369,7 +1458,8 @@ void ABoatPawn::TryLoadCustomMesh()
 	// A generated model arrives at an arbitrary scale and heading, so scale it
 	// to the hull's real length and lay its long axis along the direction of travel.
 	// The Blender boat is 7.7 m over the outboard, on a 7 m hull.
-	const float Scale = (HullLength / Longest) * (bBlenderBoat ? 1.1f : 1.f) * FMath::Max(CustomMeshScaleMultiplier, 0.01f);
+	const float Scale = (bBlenderBoat ? LengthCm / Longest : HullLength / Longest) * FMath::Max(CustomMeshScaleMultiplier, 0.01f);
+	SternX = Longest * Scale * 0.5f;
 	float Yaw = (SizeY > SizeX ? 90.f : 0.f) + CustomMeshYawOffset;
 	if (bBlenderBoat && SizeX >= SizeY && Bounds.Origin.X > 0.0)
 	{

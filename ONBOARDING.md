@@ -116,6 +116,13 @@ Gamepad: right trigger throttle, left trigger reverse, left stick steer,
 **A** torpedo, **X** mine, **B** missile, **D-pad down** flares,
 **D-pad up** grenade, **Y** reset, **Start** begin.
 
+## Garage, coins, leaderboard
+
+Main menu > **Garage**: left / right looks at boats, paints and flames; ENTER
+buys or fits. You start with 500 coins. Earn more by collecting the gold coins
+on the course, finishing well, hitting rivals and racing clean. **Leaderboard**
+lists your ten best scores.
+
 ## How a race works
 
 - Two laps of a 3 km circuit, sixteen gates, 90 m wide between the buoys.

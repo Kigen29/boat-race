@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "BoatGarage.h"
 #include "BoatRacePlayerController.generated.h"
 
 /** Which menu is on screen. */
@@ -11,7 +12,9 @@ enum class EMenuScreen : uint8
 	Main,
 	Pause,
 	Settings,
-	Controls
+	Controls,
+	Garage,
+	Leaderboard
 };
 
 enum class EMenuAction : uint8
@@ -43,6 +46,12 @@ enum class EMenuAction : uint8
 	ResetBoat,
 	Leave,
 	BackToMenu,
+	Garage,
+	Leaderboard,
+	GarageBoat,
+	GaragePaint,
+	GarageFlame,
+	GarageUpgrade,
 	Quit,
 	Back
 };
@@ -89,6 +98,29 @@ public:
 	EMenuScreen GetMenuScreen() const { return MenuScreen; }
 	int32 GetMenuSelection() const { return MenuSelection; }
 
+	/** The race's personal tally, shown under the results. */
+	struct FScoreCard
+	{
+		bool bValid = false;
+		/** What each line paid, in coins. */
+		TArray<TPair<FString, int32>> Lines;
+		int32 Coins = 0;
+		int32 Score = 0;
+		/** Place on this machine's leaderboard, 0-based; -1 off it. */
+		int32 Rank = -1;
+		int32 Wallet = 0;
+	};
+	const FScoreCard& GetScoreCard() const { return ScoreCard; }
+
+	/** Coins picked up on the course since the green light. */
+	int32 GetRaceCoins() const;
+
+	/** The boat the garage is showing (owned or not). */
+	FBoatLoadout GetGarageLoadout() const;
+	int32 GetGarageBoat() const { return GarageBoat; }
+	/** A line under the garage ("Not enough coins"), and its age. */
+	const FString& GetGarageMessage(float& OutAge) const;
+
 	/** The lines of the open menu, rebuilt every frame from the game's state. */
 	void BuildMenuItems(TArray<FMenuItem>& OutItems) const;
 
@@ -118,6 +150,10 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRaceOption(int32 Option, int32 Step);
 
+	/** The garage's choice; taken at once in the lobby, else from the next race. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetLoadout(FBoatLoadout Loadout);
+
 private:
 	void HandleAddressTyping();
 	/** Number keys on the menu join the races listed under "on your Wi-Fi". */
@@ -141,6 +177,28 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<class AFinishReplay> Replay;
+
+	// The garage: which boat, paint and flame are being looked at, the
+	// loadout last sent to the server, and the turntable camera.
+	int32 GarageBoat = 0;
+	int32 GaragePaint = 0;
+	int32 GarageFlame = 0;
+	FString GarageMessage;
+	float GarageMessageAt = -100.f;
+	bool bLoadoutSent = false;
+	FBoatLoadout SentLoadout;
+	bool bGarageView = false;
+	float GarageOrbit = 30.f;
+	UPROPERTY()
+	TObjectPtr<class ACameraActor> GarageCamera;
+	UPROPERTY()
+	TObjectPtr<class ACourseCoins> CourseCoins;
+	FScoreCard ScoreCard;
+
+	void SendLoadout(const FBoatLoadout& Loadout);
+	void UpdateGarage(float DeltaTime);
+	void GarageSay(const FString& Text, bool bGood);
+	void BuildScoreCard();
 
 	/** Last race phase seen, so the replay starts on the change to Results. */
 	uint8 ReplaySeenState = 0;

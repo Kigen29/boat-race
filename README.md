@@ -106,6 +106,20 @@ homing missiles (with a lock warning and flares to shake them), and grenades
 your copilot throws, all decided by the server. Crates hand out more. A wreck costs you about eight seconds, which is the
 point: shooting is a way to gain track position, not a score.
 
+**The garage.** Four boats, each its own Blender model and handling: the
+Interceptor (all-rounder, free), the Bullet (9 m cigarette boat, fastest flat
+out), the Hornet (F1 tunnel catamaran, quickest and sharpest, fragile) and the
+Bulldog (armoured patrol RIB). Twelve paints, six nitrous flame colours, and
+engine, handling, armour and nitrous upgrades, three levels each. The garage
+shows the boat on the water on a turntable before you buy.
+
+**Coins and power-ups.** Gold coins in rows along every leg (yours alone; they
+come back after 25 s), plus coins for your finishing place, hits and a clean
+race. Crates also hold power-ups: hull repair, a full nitrous tank and a coin
+magnet. After each race a score card adds it up, and the best ten scores go on
+the leaderboard (main menu). Coins, boats and records live in this machine's
+Game.ini.
+
 **The HUD.** Position, lap, clock, best lap, the running order with time gaps,
 speed, hull and ammunition, a map of the circuit and a kill feed.
 

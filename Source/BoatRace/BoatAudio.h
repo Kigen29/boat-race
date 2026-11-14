@@ -39,6 +39,8 @@ enum class EBoatSound : uint8
 	MissileLock, // the beeping when something has you locked
 	Flare,
 	Grenade,
+	Coin,        // a bright two-note chime
+	Purchase,    // the till: a coin rattle and a ding
 	Count
 };
 

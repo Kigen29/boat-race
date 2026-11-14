@@ -7,6 +7,7 @@ void ABoatRacePlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ABoatRacePlayerState, SlotIndex);
+	DOREPLIFETIME(ABoatRacePlayerState, Loadout);
 	DOREPLIFETIME(ABoatRacePlayerState, LapsCompleted);
 	DOREPLIFETIME(ABoatRacePlayerState, NextGate);
 	DOREPLIFETIME(ABoatRacePlayerState, GatesPassed);

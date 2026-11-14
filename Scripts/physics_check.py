@@ -9,7 +9,9 @@ Config/DefaultGame.ini:  python3 Scripts/physics_check.py
 import math, os
 
 G=980.0; MASS=1200.0; L,W,H=700.0,240.0,130.0; DRAFT=60.0
-BUOY_MULT=2.6; ZETA=0.65; THRUST_ACC=1300.0; TOP=2900.0
+BUOY_MULT=2.6; ZETA=0.65
+# ACC, TOP and TURN can be raised to check a garage boat at full upgrades.
+THRUST_ACC=float(os.environ.get('ACC','1300.0')); TOP=float(os.environ.get('TOP','2900.0'))
 LAT_RATIO=float(os.environ.get('LAT','7.0')); TURN_RATE=float(os.environ.get('TURN','76.0'))
 TURN_RESP=float(os.environ.get('RESP','4.0')); SLOPE_F=1.0; ANG_DAMP=1.1
 LIFT_FRAC=float(os.environ.get('LIFT','0.35')); PROP_DEPTH=40.0

@@ -301,12 +301,17 @@ TArray<UMaterialInstanceDynamic*> BoatArt::Paint(UMeshComponent* Component, cons
 				break;
 			case EFinish::Livery:
 				Instance->SetVectorParameterValue(TEXT("Color"), Color);
+				// "LiveryCig" wears T_LiveryCig, and so on; plain "Livery" the default mask.
+				if (Part.Len() > 6)
+				{
+					const FString Texture = FString::Printf(TEXT("/Game/Models/T_%s.T_%s"), *Part, *Part);
+					if (UTexture* Mask = LoadQuiet<UTexture>(*Texture))
+					{
+						Instance->SetTextureParameterValue(TEXT("Mask"), Mask);
+					}
+				}
 				if (Part.StartsWith(TEXT("LiveryCruise")))
 				{
-					if (UTexture* Cruise = LoadQuiet<UTexture>(TEXT("/Game/Models/T_LiveryCruise.T_LiveryCruise")))
-					{
-						Instance->SetTextureParameterValue(TEXT("Mask"), Cruise);
-					}
 					Instance->SetVectorParameterValue(TEXT("Accent"), FLinearColor(0.01f, 0.02f, 0.06f));
 				}
 				break;

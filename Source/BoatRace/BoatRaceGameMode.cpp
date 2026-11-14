@@ -172,6 +172,7 @@ void ABoatRaceGameMode::SpawnRivals(ABoatRaceGameState* RaceState)
 		Racer->SlotIndex = Slot;
 		Racer->SetIsABot(true);
 		Racer->SetPlayerName(Names[Slot % UE_ARRAY_COUNT(Names)]);
+		Racer->Loadout = BoatGarage::RivalLoadout(Level, Slot + static_cast<int32>(FDateTime::Now().GetTicks() % 997));
 		Racer->ResetRace();
 		// Spread the field: one a touch quicker, one a touch slower.
 		Rival->Skill = FMath::Clamp(BaseSkill + (Slot - 1.5f) * 0.03f, 0.5f, 1.f);

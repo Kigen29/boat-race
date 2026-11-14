@@ -678,6 +678,60 @@ namespace
 		return Out;
 	}
 
+	FBuffer MakeCoin()
+	{
+		// Two quick bell notes a fifth apart (B5 then E6), each a decaying
+		// sine with a little of its octave for sparkle.
+		FBuffer Out = Silence(0.42f);
+		const float Notes[] = { 987.8f, 1318.5f };
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			float Sum = 0.f;
+			for (int32 Note = 0; Note < 2; ++Note)
+			{
+				const float Local = Time - Note * 0.07f;
+				if (Local < 0.f)
+				{
+					continue;
+				}
+				const float Env = FMath::Exp(-Local * 11.f) * FMath::Min(Local * 400.f, 1.f);
+				Sum += Env * (FMath::Sin(2.f * PI * Notes[Note] * Local) + 0.3f * FMath::Sin(4.f * PI * Notes[Note] * Local));
+			}
+			Out[Index] = Sum;
+		}
+		Normalise(Out, 0.45f);
+		return Out;
+	}
+
+	FBuffer MakePurchase()
+	{
+		// A handful of coins (short metallic clicks) and then a bell.
+		FBuffer Out = Silence(0.9f);
+		FRandomStream Random(97);
+		for (int32 Click = 0; Click < 9; ++Click)
+		{
+			const float At = Random.FRandRange(0.f, 0.35f);
+			const float Pitch = Random.FRandRange(2500.f, 5200.f);
+			for (int32 Index = FMath::FloorToInt(At * Rate); Index < Out.Num(); ++Index)
+			{
+				const float Local = T(Index) - At;
+				if (Local > 0.06f)
+				{
+					break;
+				}
+				Out[Index] += FMath::Sin(2.f * PI * Pitch * Local) * FMath::Exp(-Local * 90.f) * 0.5f;
+			}
+		}
+		for (int32 Index = FMath::FloorToInt(0.4f * Rate); Index < Out.Num(); ++Index)
+		{
+			const float Local = T(Index) - 0.4f;
+			Out[Index] += FMath::Exp(-Local * 6.f) * (FMath::Sin(2.f * PI * 1760.f * Local) + 0.4f * FMath::Sin(2.f * PI * 2640.f * Local));
+		}
+		Normalise(Out, 0.5f);
+		return Out;
+	}
+
 	using FSamples = TSharedPtr<const TArray<int16>, ESPMode::ThreadSafe>;
 
 	FSamples ToPcm(const FBuffer& Buffer)
@@ -729,6 +783,8 @@ namespace
 		case EBoatSound::MissileLock:   Buffer = MakeBeeps(3, 1900.f, 0.06f, 0.05f); break;
 		case EBoatSound::Flare:     Buffer = MakeSplash(); break;
 		case EBoatSound::Grenade:   Buffer = MakeGrenadeThrow(); break;
+		case EBoatSound::Coin:      Buffer = MakeCoin(); break;
+		case EBoatSound::Purchase:  Buffer = MakePurchase(); break;
 		default:                    Buffer = Silence(0.1f); break;
 		}
 		Slot = ToPcm(Buffer);

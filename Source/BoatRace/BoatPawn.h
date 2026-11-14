@@ -4,6 +4,7 @@
 #include "BoatWake.h"
 #include "Engine/NetSerialization.h"
 #include "GameFramework/Pawn.h"
+#include "BoatGarage.h"
 #include "BoatPawn.generated.h"
 
 class ABoatRacePlayerState;
@@ -97,6 +98,9 @@ public:
 
 	/** Server only: tell the owner what they picked up (0 ammo, 1 shield). */
 	void NotifyPickup(uint8 Kind, uint8 Torpedoes, uint8 Mines) { ClientPickup(Kind, Torpedoes, Mines); }
+
+	/** Server only: patch the hull by Amount percent of its strength. */
+	void Repair(float Amount);
 
 	/** Server only: shielded against damage for a while (a crate pickup). */
 	void GrantShield(float Seconds);
@@ -436,7 +440,11 @@ private:
 	void FollowReportedState(float DeltaSeconds);
 	void UpdateCosmetics(float DeltaSeconds);
 	void TryApplyPlayerColor();
-	void TryLoadCustomMesh();
+	void TryLoadCustomMesh(const TCHAR* ModelName = TEXT("RaceBoat"), float LengthCm = 770.f);
+
+	/** Fits the boat, paint, flames and handling of the player state's loadout. */
+	void UpdateLoadout();
+	void ApplyStats(const FBoatStats& Stats);
 	void BuildEffects();
 	void UpdateEffects(float DeltaSeconds);
 	void UpdateAudio(float DeltaSeconds);
@@ -560,6 +568,13 @@ private:
 	// Cosmetics and bookkeeping.
 	bool bPhysicsActive = false;
 	bool bColorApplied = false;
+
+	/** The loadout the boat was last fitted with, and for which seat. */
+	FBoatLoadout AppliedLoadout;
+	bool bLoadoutApplied = false;
+	int32 AppliedSlot = -1;
+	/** Stern of the current model, cm aft of centre: where the flames go. */
+	float SternX = 385.f;
 	bool bUsingCustomMesh = false;
 	float LastSubmersion = 1.f;
 	float LastFireTime = -100.f;
