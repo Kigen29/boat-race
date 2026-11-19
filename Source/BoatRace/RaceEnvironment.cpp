@@ -342,7 +342,32 @@ void ARaceEnvironment::BeginPlay()
 void ARaceEnvironment::ApplyWeather(ERaceWeather NewWeather)
 {
 	AppliedWeather = static_cast<int32>(NewWeather);
-	const FWeatherLook& Look = RaceWeather::Get(NewWeather);
+	FWeatherLook Look = RaceWeather::Get(NewWeather);
+	const int32 Circuit = BoatTrack::GetCircuit();
+	const float Light = Look.bNight ? 0.14f : FMath::Lerp(1.f, 0.55f, Look.Overcast);
+	if (Circuit == 1)
+	{
+		Look.WaterTint = FLinearColor(0.008f, 0.03f, 0.047f) * Light;
+		Look.FogColor = FLinearColor(0.40f, 0.49f, 0.55f) * (Look.bNight ? 0.2f : 1.f);
+		Look.Overcast = FMath::Max(Look.Overcast, 0.55f);
+		if (NewWeather == ERaceWeather::Sunny || NewWeather == ERaceWeather::Cloudy || NewWeather == ERaceWeather::Windy)
+		{
+			Look.FogDensity *= 0.35f;
+		}
+		Look.Cumulus = 0.f;
+		if (!Look.bNight) { Look.SunColor = FLinearColor(0.80f, 0.90f, 1.f); }
+	}
+	else if (Circuit == 2)
+	{
+		Look.WaterTint = FLinearColor(0.004f, 0.06f, 0.065f) * Light;
+		Look.FogColor = FLinearColor(0.50f, 0.45f, 0.37f) * (Look.bNight ? 0.16f : 1.f);
+		Look.Cumulus = 0.f;
+		if (!Look.bNight) { Look.SunColor = FLinearColor(1.f, 0.91f, 0.79f); }
+	}
+	else
+	{
+		Look.WaterTint = FLinearColor(0.003f, 0.115f, 0.14f) * Light;
+	}
 	bNight = Look.bNight;
 
 	OceanWaves::SetRoughness(WaveRoughness * Look.Waves);
@@ -959,17 +984,25 @@ void ARaceEnvironment::BuildRocks()
 		++Seed;
 		const FVector Base(Rock.Center.X, Rock.Center.Y, 0.0);
 		const float Diameter = Rock.Radius * 2.f;
-		const float Height = Rock.Radius * 6.5f;
+		const int32 Circuit = BoatTrack::GetCircuit();
+		const float Height = Rock.Radius * (Circuit == 0 ? 2.1f : Circuit == 1 ? 4.1f : 6.5f);
 
 		// The blocking part is one plain column.
 		UStaticMeshComponent* Column = AddPiece(Cylinder, Base + FVector(0.0, 0.0, Height * 0.35),
 			FRotator::ZeroRotator, FVector(Diameter / 100.f, Diameter / 100.f, Height * 0.7f / 100.f), RockDark, true);
 
 		// A weathered sea stack, its base the same width as the column.
-		if (UStaticMeshComponent* Stack = AddModel(TEXT("SeaStack"), 7.f, Base - FVector(0, 0, 150),
+		const TCHAR* Model = Circuit == 0 ? TEXT("TropicalIslet") : Circuit == 1 ? TEXT("HarbourBeacon") : TEXT("CanyonButte");
+		const float ModelHeight = Circuit == 0 ? 1.6f : Circuit == 1 ? 4.1f : 6.5f;
+		if (UStaticMeshComponent* Stack = AddModel(Model, ModelHeight, Base - FVector(0, 0, 50),
 			FRotator(0.f, 360.f * Wobble(Seed, 5), 0.f), Rock.Radius / 100.f * 1.0f))
 		{
 			Column->SetVisibility(false);
+			if (Circuit == 0)
+			{
+				AddModel(TEXT("Palm"), 8.3f, Base + FVector(0, 0, Rock.Radius * 1.1f),
+					FRotator(0.f, Seed * 47.f, 0.f), 1.4f);
+			}
 			continue;
 		}
 		AddPiece(Cone, Base + FVector(0.0, 0.0, Height * 0.85), FRotator::ZeroRotator,
@@ -1402,9 +1435,13 @@ void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
 	// flatter and cooler when it rains.
 	const bool bBright = Look.Precipitation == EPrecipitation::None && !Look.bNight && Look.FogDensity < 0.1f;
 	Post.bOverride_ColorSaturation = true;
-	Post.ColorSaturation = bBright ? FVector4(1.12, 1.12, 1.12, 1.0) : FVector4(0.92, 0.92, 0.92, 1.0);
+	Post.ColorSaturation = bBright ? FVector4(1.24, 1.24, 1.24, 1.0) : FVector4(0.98, 0.98, 0.98, 1.0);
+	if (BoatTrack::GetCircuit() != 0)
+	{
+		Post.ColorSaturation = bBright ? FVector4(1.08, 1.08, 1.08, 1.0) : FVector4(0.94, 0.94, 0.94, 1.0);
+	}
 	Post.bOverride_ColorContrast = true;
-	Post.ColorContrast = FVector4(1.1, 1.1, 1.1, 1.0);
+	Post.ColorContrast = bBright ? FVector4(1.14, 1.14, 1.14, 1.0) : FVector4(1.1, 1.1, 1.1, 1.0);
 	// A racing-game split tone: highlights a touch warm, shadows a touch
 	// cool and blue, so sun on paint pops against the water.
 	Post.bOverride_ColorGainHighlights = true;
@@ -1426,6 +1463,7 @@ void ARaceEnvironment::ApplyGrade(const FWeatherLook& Look)
 // ---------------------------------------------------------------------------
 void ARaceEnvironment::BuildTraffic()
 {
+	if (BoatTrack::GetCircuit() != 0) { return; }
 	struct FKind { const TCHAR* Name; float Height; float Length; float SpeedMs; FLinearColor Paint; };
 	const FKind Kinds[] =
 	{

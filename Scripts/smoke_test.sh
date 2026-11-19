@@ -7,9 +7,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 MIN_FPS="${1:-25}"
 SHOTS="$PROJECT_DIR/Saved/Screenshots/LinuxEditor"
 LOG="$PROJECT_DIR/Saved/Logs/smoke_test.log"
-rm -rf "$SHOTS"
+if [ -d "$SHOTS" ]; then
+	BACKUP=$(mktemp -d "$PROJECT_DIR/Saved/Screenshots/previous-tour.XXXXXX")
+	mv "$SHOTS" "$BACKUP/LinuxEditor"
+fi
 mkdir -p "$(dirname "$LOG")"
-timeout 600 "$EDITOR" "$PROJECT_FILE" -game -log -windowed -ResX=1280 -ResY=720 -PhotoTour -abslog="$LOG" >/dev/null 2>&1 || true
+timeout 600 "$EDITOR" "$PROJECT_FILE" -game -log -windowed -ResX=1280 -ResY=720 -PhotoTour -nowrite -abslog="$LOG" "${@:2}" >/dev/null 2>&1 || true
 
 fail=0
 count=$(ls "$SHOTS"/*.png 2>/dev/null | wc -l)

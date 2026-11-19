@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "BoatWake.h"
+#include "BoatWeapons.h"
 #include "Engine/NetSerialization.h"
 #include "GameFramework/Pawn.h"
 #include "BoatGarage.h"
@@ -86,7 +87,7 @@ public:
 	FVector GetRaceLocation() const;
 
 	/** Hurt the boat. Returns true if this blow wrecked it. */
-	bool ApplyDamage(float Amount, ABoatRacePlayerState* Attacker);
+	bool ApplyDamage(float Amount, ABoatRacePlayerState* Attacker, bool bSmallArms = false);
 
 	/** Shove the boat; routed to the machine that is simulating it. */
 	void ApplyExplosionImpulse(const FVector& Origin, float Strength);
@@ -139,6 +140,24 @@ public:
 
 	/** Server only, for computer drivers: 0 missile, 1 flares, 2 grenade. */
 	void RequestSpecial(int32 Weapon);
+
+	// ---- Missile sights (the owner's machine only) -----------------------
+	/** The boat the missile sights are on, and 0..1 how nearly locked. */
+	ABoatPawn* GetLockTarget() const { return LockTarget.Get(); }
+	float GetLockProgress() const { return LockProgress; }
+
+	// ---- The deck gun ----------------------------------------------------
+	/** Server only, for computer drivers: hold or release the trigger.
+	 *  Accuracy scales how many of their aimed rounds land. */
+	void SetDriverGun(bool bWant, float Accuracy = 1.f) { bGunWanted = bWant; GunDriverAccuracy = Accuracy; }
+	bool IsGunFiring() const { return bGunFiring; }
+	/** 0 cold to 1 jammed. Known to the server and to the boat's own player. */
+	float GetGunHeat() const { return HasAuthority() ? GunHeat : GunHeatNet / 255.f; }
+	bool IsGunJammed() const { return bGunJammed; }
+	/** The boat the gun would hit now: the nearest one in range inside the
+	 *  aim assist with no solid cover in between. Any machine may ask. */
+	ABoatPawn* FindGunTarget() const;
+	FVector GetGunMuzzle() const;
 	bool IsInvulnerable() const;
 	/** How far out of the water the hull is, 0 afloat to 1 airborne. */
 	float GetAirborneFraction() const { return 1.f - FMath::Clamp(LastSubmersion * BuoyancyMultiplier, 0.f, 1.f); }
@@ -273,13 +292,41 @@ public:
 	float FireCooldownSeconds = 0.9f;
 
 	UPROPERTY(Config)
-	int32 StartMissiles = 1;
+	int32 StartMissiles = 2;
 
 	UPROPERTY(Config)
 	int32 StartFlares = 1;
 
 	UPROPERTY(Config)
 	int32 StartGrenades = 2;
+
+	// ---- Deck gun --------------------------------------------------------
+	UPROPERTY(Config)
+	float GunRoundsPerSecond = 10.f;
+
+	/** How far a round carries, cm. */
+	UPROPERTY(Config)
+	float GunRange = 15000.f;
+
+	/** Hull points a round takes off. */
+	UPROPERTY(Config)
+	float GunDamage = 3.f;
+
+	/** The gun is fixed, so the boat is the aim: a round counts if the target
+	 *  is within this many degrees of the bow (plus the width of its hull). */
+	UPROPERTY(Config)
+	float GunAimAssistDegrees = 6.f;
+
+	/** Share of well-aimed rounds that land point blank; half that at full range. */
+	UPROPERTY(Config)
+	float GunAccuracy = 0.85f;
+
+	/** Seconds of continuous fire before it jams, and to cool from jammed to cold. */
+	UPROPERTY(Config)
+	float GunOverheatSeconds = 4.f;
+
+	UPROPERTY(Config)
+	float GunCoolSeconds = 2.5f;
 
 	/** Which boat model to use: RaceBoat (the Blender boat, painted in the
 	 *  player's colour) or Higgsfield (the generated SM_Boat). */
@@ -307,8 +354,9 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void ClientImpulse(FVector Impulse);
 
+	/** Strength 1 for a blast or a crash, less for a bullet. */
 	UFUNCTION(Client, Reliable)
-	void ClientHitFeedback();
+	void ClientHitFeedback(float Strength);
 
 	UFUNCTION(Client, Reliable)
 	void ClientPickup(uint8 Kind, uint8 Torpedoes, uint8 Mines);
@@ -319,14 +367,19 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerDropMine();
 
+	/** Wanted is the boat the owner's sights had locked, or null. */
 	UFUNCTION(Server, Reliable)
-	void ServerFireMissile();
+	void ServerFireMissile(ABoatPawn* Wanted);
 
 	UFUNCTION(Server, Reliable)
 	void ServerDropFlares();
 
 	UFUNCTION(Server, Reliable)
 	void ServerThrowGrenade();
+
+	/** The trigger pressed or let go. The server fires the gun and decides the hits. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetGun(bool bWant);
 
 	/** The owner hit something hard; the server decides what it costs. */
 	UFUNCTION(Server, Unreliable)
@@ -373,6 +426,18 @@ protected:
 	/** Server time until which this boat's flares are burning. */
 	UPROPERTY(Replicated)
 	float FlaringUntil = 0.f;
+
+	/** The one thing about the gun everyone is told: each machine draws its
+	 *  own tracers and plays its own rattle from this. */
+	UPROPERTY(Replicated)
+	bool bGunFiring = false;
+
+	/** For the owner's heat bar: 0..255, and whether it has jammed. */
+	UPROPERTY(Replicated)
+	uint8 GunHeatNet = 0;
+
+	UPROPERTY(Replicated)
+	bool bGunJammed = false;
 
 	// ---- Components ------------------------------------------------------
 	/** The simulated body. Everything else hangs off it. */
@@ -428,6 +493,7 @@ protected:
 	TObjectPtr<UCameraComponent> Camera;
 
 private:
+	friend class ABoatNetCombatTest;
 	void UpdatePhysicsMode();
 	void ReadInput(float DeltaSeconds);
 	void SimulatePhysics(float DeltaSeconds, float WaveTime);
@@ -448,6 +514,16 @@ private:
 	void BuildEffects();
 	void UpdateEffects(float DeltaSeconds);
 	void UpdateAudio(float DeltaSeconds);
+	/** Server: heat, rate of fire and hits. */
+	void UpdateGun(float DeltaSeconds);
+	void FireGunRound();
+	/** Every machine: tracers, flash and strikes while bGunFiring. */
+	void UpdateGunEffects(float DeltaSeconds);
+	/** Owner: tells the server when the trigger changes. */
+	void HoldGun(bool bHeld);
+	/** Owner: keeps the missile sights on a boat ahead; bCycle moves to the next. */
+	void UpdateMissileLock(float DeltaSeconds, bool bCycle);
+	void FireMissile(ABoatPawn* Wanted, bool bPickNearest);
 	void EmitPuff(const FVector& Location, const FVector& Velocity, float Life, float StartSize, float EndSize,
 		const FLinearColor& Color, float Opacity, float Gravity, float Flat = 0.8f, bool bOnWater = false);
 	void ApplyWindAndShore();
@@ -539,6 +615,28 @@ private:
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> SprayMaterials;
 
 	FBoatWakeTrail Wake;
+	FDeckGunEffects GunEffects;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> GunAudio;
+
+	// Missile sights: the owner's side.
+	TWeakObjectPtr<ABoatPawn> LockTarget;
+	float LockProgress = 0.f;
+
+	// Gun: the server's side.
+	bool bGunWanted = false;
+	float GunDriverAccuracy = 1.f;
+	float GunHeat = 0.f;
+	float NextGunRound = 0.f;
+	float LastSmallArmsFeedback = -10.f;
+	// Gun: the owner's trigger, and each machine's cosmetics.
+	bool bGunHeld = false;
+	float GunEffectClock = 1.f;
+	int32 GunRoundsDrawn = 0;
+	/** Muzzle in the model (metres forward, metres up) and on the hull (cm). */
+	FVector2D GunMuzzleModel = FVector2D(3.1, 1.1);
+	FVector GunMuzzleLocal = FVector(300.f, 0.f, 110.f);
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> RoosterMaterial;

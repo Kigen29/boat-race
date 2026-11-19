@@ -9,13 +9,13 @@ namespace
 	const FBoatClass GarageBoats[] =
 	{
 		{ TEXT("Interceptor"), TEXT("RaceBoat"),  TEXT("7 m twin-step offshore racer. Good at everything."),
-			770.f, 1.00f, 1.00f, 1.00f, 1.00f, 0 },
+			770.f, 1.00f, 1.00f, 1.00f, 1.00f, 0, 3.1f, 1.1f },
 		{ TEXT("Bullet"),      TEXT("Cigarette"), TEXT("9 m cigarette boat, triple outboards. Fastest flat out; wide in the turns."),
-			900.f, 1.08f, 0.94f, 0.92f, 1.00f, 800 },
+			900.f, 1.08f, 0.94f, 0.92f, 1.00f, 800, 4.2f, 1.11f },
 		{ TEXT("Hornet"),      TEXT("Tunnel"),    TEXT("F1 tunnel catamaran. Quickest off the line and the sharpest turner; fragile."),
-			640.f, 1.03f, 1.12f, 1.16f, 0.75f, 1200 },
+			640.f, 1.03f, 1.12f, 1.16f, 0.75f, 1200, 2.65f, 0.95f },
 		{ TEXT("Bulldog"),     TEXT("Patrol"),    TEXT("Armoured patrol RIB. Shrugs off missiles and mines; a little slower."),
-			780.f, 0.95f, 0.98f, 0.95f, 1.55f, 1000 },
+			780.f, 0.95f, 0.98f, 0.95f, 1.55f, 1000, 3.6f, 1.25f },
 	};
 
 	struct FGarageColour { const TCHAR* Name; FLinearColor Colour; };
@@ -34,6 +34,16 @@ namespace
 		{ TEXT("Pearl white"),   FLinearColor(0.85f, 0.86f, 0.88f) },
 		{ TEXT("Gloss black"),   FLinearColor(0.012f, 0.012f, 0.014f) },
 		{ TEXT("Gold"),          FLinearColor(0.75f, 0.5f, 0.12f) },
+		// Added after the first saves were written: new paints go on the end,
+		// because a player's owned paints are remembered by position.
+		{ TEXT("Candy apple"),   FLinearColor(0.55f, 0.f, 0.04f) },
+		{ TEXT("Electric cyan"), FLinearColor(0.f, 0.75f, 0.95f) },
+		{ TEXT("Tangerine"),     FLinearColor(1.f, 0.42f, 0.f) },
+		{ TEXT("Mint"),          FLinearColor(0.3f, 0.9f, 0.6f) },
+		{ TEXT("Magenta"),       FLinearColor(0.8f, 0.02f, 0.65f) },
+		{ TEXT("Midnight blue"), FLinearColor(0.01f, 0.02f, 0.18f) },
+		{ TEXT("British green"), FLinearColor(0.f, 0.16f, 0.07f) },
+		{ TEXT("Bronze"),        FLinearColor(0.45f, 0.24f, 0.08f) },
 	};
 	const FGarageColour GarageFlames[] =
 	{

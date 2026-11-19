@@ -3,20 +3,46 @@
 Four-player armed powerboat racing for Unreal Engine 5, written entirely in
 C++, with art generated in Higgsfield.
 
-A 3 km, sixteen-gate circuit in a stormy bay. The boats are rigid bodies
+Three sixteen-gate circuits, each playable forwards or reversed. The boats are rigid bodies
 floating on a real wave field, with torpedoes and mines to make the racing
 untidy. One player hosts, three others join by address.
 
 ## Status
 
-- **Version 0.2 compiles** on Unreal Engine 5.9.0 preview-1 under Ubuntu, with
-  no warnings. It has not been playtested, so the handling, the difficulty and
-  the sea state are calculated rather than felt.
+- **The current C++ changes compile** on Unreal Engine 5.9.0 preview-1 under
+  Ubuntu (verified 16 November 2026). Handling, difficulty and combat balance
+  still need full races played by hand.
 - The physics was checked by simulating it numerically rather than by feel
   (`Scripts/physics_check.py`), and the circuit by generating and testing its
   geometry (`Scripts/course_layout.py`). Both found real bugs, which is why
   they are in the project.
-- No sound, no spray particles. See [What is missing](#what-is-missing).
+- The working version includes synthesised sound, wakes, scenery and combat
+  upgrades. See [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) for the current
+  verification and improvement priorities.
+
+After building, `bash Scripts/combat_test.sh` runs the engine combat checks:
+solid cover, missile homing and hits between frames, flares, wrecks, shields
+and respawn protection. It runs without graphics and writes its log to
+`Saved/Logs/combat_test.log`.
+
+`bash Scripts/net_combat_test.sh` runs a host and client locally to compare
+gun damage and release, missile lock/ammo/damage, client flares and wreck
+recovery. It holds the boats still for repeatable shots and does not write
+player progress. Logs are in `Saved/Logs/net_combat_host.log` and
+`Saved/Logs/net_combat_client.log`. It complements the moving-boat check in
+`Scripts/net_test.sh`; Wi-Fi across two computers still needs a separate test.
+
+`bash Scripts/frontend_test.sh` checks Back navigation from every submenu and
+all six circuit/direction layouts. `bash Scripts/net_test.sh 2` checks hosting,
+joining and scoring gates on Canyon Run. For visual checks, use
+`bash Scripts/smoke_test.sh 25 -Circuit=1` (Harbour) or `-Circuit=2` (Canyon).
+Previous screenshots are archived instead of deleted.
+`bash Scripts/menu_test.sh` photographs the menus and verifies live circuit
+and direction changes through the server RPC, including the return paths.
+
+Escape returns from Garage, Leaderboard, Settings and Controls to the menu
+that opened them; Escape from Pause resumes play. The on-screen Back action
+and gamepad Back follow the same path.
 
 ## Quick start
 
@@ -49,6 +75,7 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 |---|---|
 | **[ONBOARDING.md](ONBOARDING.md)** | **Getting four people into a race**: sharing the game over Wi-Fi in one line, building the Windows copy so Windows and Linux friends race together, joining from the menu list, and what to do when a join fails |
 | [PLAN.md](PLAN.md) | What was built and why, stage by stage, with the real-world powerboat racing it borrows from |
+| [RACING_RESEARCH.md](RACING_RESEARCH.md) | Comparison with Hydro Thunder and Riptide GP, the additions made, and remaining gaps |
 | [HIGGSFIELD_ASSETS.md](HIGGSFIELD_ASSETS.md) | The generated art: which models, the exact prompts, what each cost, and how to replace any of it |
 | [CLAUDE.md](CLAUDE.md) | Working context for an AI coding agent: current state, design rules, verification scripts |
 
@@ -60,9 +87,11 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 | A / D | Steer |
 | SPACE or left mouse | Fire a torpedo |
 | Q or right mouse | Drop a mine |
+| CTRL or X / left bumper | Hold to fire the deck machine gun; release to cool it |
 | R | Back to your last gate |
 | SHIFT / RB | Nitrous boost (fills slowly, and fast while airborne off a ramp) |
-| E | Fire a homing missile (locks on to the boat ahead of you) |
+| E | Fire a missile; hold the sights on an opponent first for a homing lock |
+| T / D-pad right | Switch missile target |
 | F | Drop flares: any missile locked on you chases them instead |
 | G | Your copilot lobs a grenade over the side |
 | C / B | Cycle camera view / look behind |
@@ -94,14 +123,31 @@ produce all the pitch, roll, heave and slamming; the hull planes at speed,
 leans into turns, and loses its engine when the propeller leaves the water.
 Ramming, obstacles and explosions are real impulses.
 
-**The circuit.** 3 km, sixteen gates, 90 m between buoys (the UIM minimum for
+**The circuits.** Bay Circuit (3.0 km), Harbour Sprint (2.48 km) and Canyon
+Run (3.28 km), each with sixteen gates and its own racing line, shoreline,
+obstacles and barge routes. Race setup shows a route preview, course profile
+and personal-best lap. There are 90 m between buoys (the UIM minimum for
 F1H2O powerboat racing). Nine rock spires, four jump ramps, two barges crossing
 the course, three whirlpools, explosive red barrels (ram one, or shoot it,
 and it goes off and sets off its neighbours) and a field of drifting sea
-mines just off the racing line. The menu's **Track** option turns the whole
-circuit round: the reverse track has its own ramps, ghost and records.
+mines just off the racing line. Choose **Circuit** and **Direction** in race
+setup: all three courses can be reversed, for six layouts. Every course and
+direction has independent lap/race records and a ghost; original bay saves
+remain compatible.
 
-**The weapons.** Torpedoes that skim the surface, mines you drop behind you,
+The settings are visibly different: Bay Circuit is a low tropical coast with
+palms, sandy banks and turquoise water; Harbour Sprint has concrete quays,
+container yards, warehouses, cargo cranes and steel navigation towers; Canyon
+Run has tall sandstone walls, mesas, cacti, a natural arch and teal water.
+Terrain relief, vegetation, skyline, water/lighting palette and minimap land
+colours change with the circuit.
+
+After the normal art setup, `bash Scripts/build_environments.sh` regenerates
+and imports the nine themed scenery models. `bash Scripts/environment_test.sh`
+captures matching sunny game screenshots in `Saved/Screenshots/EnvironmentComparison`.
+
+**The weapons.** A forward deck machine gun with heat and cooling,
+torpedoes that skim the surface, mines you drop behind you,
 homing missiles (with a lock warning and flares to shake them), and grenades
 your copilot throws, all decided by the server. Crates hand out more. A wreck costs you about eight seconds, which is the
 point: shooting is a way to gain track position, not a score.
@@ -111,7 +157,7 @@ the course: the title screen looks out of it at your boat, and the garage
 walks round the boat on the quay as you choose. Four boats, each its own Blender model and handling: the
 Interceptor (all-rounder, free), the Bullet (9 m cigarette boat, fastest flat
 out), the Hornet (F1 tunnel catamaran, quickest and sharpest, fragile) and the
-Bulldog (armoured patrol RIB). Twelve paints, six nitrous flame colours, and
+Bulldog (armoured patrol RIB). Twenty paints, six nitrous flame colours, and
 engine, handling, armour and nitrous upgrades, three levels each. The garage
 shows the boat on the water on a turntable before you buy.
 
@@ -144,11 +190,12 @@ All four players must use the same values.
 
 ## What is missing
 
-- **Sound.** None at all.
-- **Spray and wake particles.** Niagara effects are authored in the editor, not
-  in code, so the boats move convincingly but throw no water.
-- **A shoreline.** The edge of the bay is a boundary that pushes you back
-  rather than a coast.
+- **Full-race playtesting.** Handling, rival difficulty and combat balance need
+  hands-on racing; automated checks cannot establish how the game feels.
+- **Cross-device multiplayer verification.** A local host/client check does
+  not establish reliability over Wi-Fi between two machines.
+- **Effects polish.** Spray, smoke and fire use inexpensive mesh effects;
+  further detail needs to stay within the integrated graphics budget.
 - **Anti-cheat.** Each player's own boat position is trusted, which is right
   for friends and wrong for strangers.
 

@@ -43,5 +43,10 @@ private:
 	float StuckTime = 0.f;
 	float ReverseUntil = -1.f;
 	float NextWeaponTime = 0.f;
+	/** Holding the deck gun's trigger. */
+	bool bGunning = false;
+	/** How long a boat has been in the sights, and when the next burst may start. */
+	float GunSightTime = 0.f;
+	float NextGunTime = 0.f;
 	float LaneDriftPhase = 0.f;
 };

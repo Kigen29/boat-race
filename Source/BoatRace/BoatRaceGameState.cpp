@@ -6,6 +6,7 @@
 
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
+#include "Misc/CommandLine.h"
 
 void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -18,6 +19,7 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ABoatRaceGameState, TotalLaps);
 	DOREPLIFETIME(ABoatRaceGameState, WeatherIndex);
 	DOREPLIFETIME(ABoatRaceGameState, bReverse);
+	DOREPLIFETIME(ABoatRaceGameState, CircuitIndex);
 	DOREPLIFETIME(ABoatRaceGameState, RivalLevel);
 	DOREPLIFETIME(ABoatRaceGameState, bTimeTrial);
 	DOREPLIFETIME(ABoatRaceGameState, bElimination);
@@ -26,6 +28,17 @@ void ABoatRaceGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 void ABoatRaceGameState::BeginPlay()
 {
 	Super::BeginPlay();
+	if (HasAuthority())
+	{
+		int32 Choice = 0;
+		FParse::Value(FCommandLine::Get(), TEXT("Circuit="), Choice);
+		if (const TCHAR* Option = GetWorld()->URL.GetOption(TEXT("Circuit="), nullptr))
+		{
+			Choice = FCString::Atoi(Option);
+		}
+		CircuitIndex = static_cast<uint8>(FMath::Clamp(Choice, 0, BoatTrack::NumCircuits() - 1));
+	}
+	BoatTrack::SetCircuit(CircuitIndex);
 	BoatTrack::SetReversed(bReverse);
 	BuildBay();
 }
@@ -44,6 +57,7 @@ void ABoatRaceGameState::BuildBay()
 	{
 		It->Destroy();
 	}
+	UE_LOG(LogTemp, Display, TEXT("Circuit ready: %d %s %s"), CircuitIndex, BoatTrack::CircuitName(CircuitIndex), bReverse ? TEXT("reverse") : TEXT("forward"));
 	FActorSpawnParameters SpawnParameters;
 	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	World->SpawnActor<ARaceEnvironment>(ARaceEnvironment::StaticClass(), FTransform::Identity, SpawnParameters);
@@ -60,11 +74,22 @@ void ABoatRaceGameState::SetReverse(bool bInReverse)
 
 void ABoatRaceGameState::OnRep_Reverse()
 {
+	BoatTrack::SetCircuit(CircuitIndex);
 	BoatTrack::SetReversed(bReverse);
 	// Before BeginPlay the first build will use the new direction anyway.
 	if (HasActorBegunPlay())
 	{
 		BuildBay();
+	}
+}
+
+void ABoatRaceGameState::SetCircuit(int32 Index)
+{
+	const uint8 Next = static_cast<uint8>(FMath::Clamp(Index, 0, BoatTrack::NumCircuits() - 1));
+	if (CircuitIndex != Next)
+	{
+		CircuitIndex = Next;
+		OnRep_Reverse();
 	}
 }
 

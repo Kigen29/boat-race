@@ -94,6 +94,10 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_Reverse)
 	bool bReverse = false;
 
+	UPROPERTY(ReplicatedUsing = OnRep_Reverse)
+	uint8 CircuitIndex = 0;
+	void SetCircuit(int32 Index);
+
 	/** Server only. */
 	void SetReverse(bool bInReverse);
 

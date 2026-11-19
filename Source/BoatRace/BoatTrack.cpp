@@ -22,10 +22,12 @@ namespace
 	}
 
 	bool GReversed = false;
+	int32 GTrackIndex = 0;
+	int32 LayoutKey() { return GTrackIndex * 2 + static_cast<int32>(GReversed); }
 
 	TArray<FBoatGate> MakeGateList()
 	{
-		const int32 Count = UE_ARRAY_COUNT(BoatTrackData::RacingLine);
+		const int32 Count = UE_ARRAY_COUNT(BoatTrackData::Current().RacingLine);
 
 		// Reversed: the same start line, then the points in the other order.
 		TArray<FVector2D> Points;
@@ -33,7 +35,7 @@ namespace
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
 			const int32 From = GReversed ? (Count - Index) % Count : Index;
-			Points.Add(FromMetres(BoatTrackData::RacingLine[From][0], BoatTrackData::RacingLine[From][1]));
+			Points.Add(FromMetres(BoatTrackData::Current().RacingLine[From][0], BoatTrackData::Current().RacingLine[From][1]));
 		}
 
 		const double HalfWidth = BoatTrackData::GateHalfWidthMetres * MetresToUU;
@@ -66,10 +68,10 @@ const TArray<FBoatGate>& BoatTrack::GetGates()
 {
 	static TArray<FBoatGate> Gates;
 	static int32 BuiltFor = -1;
-	if (BuiltFor != static_cast<int32>(GReversed))
+	if (BuiltFor != LayoutKey())
 	{
 		Gates = MakeGateList();
-		BuiltFor = static_cast<int32>(GReversed);
+		BuiltFor = LayoutKey();
 	}
 	return Gates;
 }
@@ -88,11 +90,11 @@ float BoatTrack::GetLapLength()
 {
 	static float Length = 0.f;
 	static int32 BuiltFor = -1;
-	if (BuiltFor == static_cast<int32>(GReversed))
+	if (BuiltFor == LayoutKey())
 	{
 		return Length;
 	}
-	BuiltFor = static_cast<int32>(GReversed);
+	BuiltFor = LayoutKey();
 	Length = []()
 	{
 		const TArray<FBoatGate>& Gates = GetGates();
@@ -112,9 +114,9 @@ float BoatTrack::GetDistanceToGate(int32 GateIndex)
 	// out how many seconds apart they are.
 	static TArray<float> Distances;
 	static int32 BuiltFor = -1;
-	if (BuiltFor != static_cast<int32>(GReversed))
+	if (BuiltFor != LayoutKey())
 	{
-		BuiltFor = static_cast<int32>(GReversed);
+		BuiltFor = LayoutKey();
 		Distances = []()
 	{
 		const TArray<FBoatGate>& Gates = GetGates();
@@ -136,18 +138,24 @@ float BoatTrack::GetDistanceToGate(int32 GateIndex)
 
 const TArray<FBoatCircle>& BoatTrack::GetRocks()
 {
-	static const TArray<FBoatCircle> Rocks = []()
+	static TArray<FBoatCircle> Rocks;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Rocks = []()
 	{
 		TArray<FBoatCircle> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Rocks); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Rocks); ++Index)
 		{
 			FBoatCircle Rock;
-			Rock.Center = FromMetres(BoatTrackData::Rocks[Index][0], BoatTrackData::Rocks[Index][1]);
-			Rock.Radius = static_cast<float>(BoatTrackData::Rocks[Index][2] * MetresToUU);
+			Rock.Center = FromMetres(BoatTrackData::Current().Rocks[Index][0], BoatTrackData::Current().Rocks[Index][1]);
+			Rock.Radius = static_cast<float>(BoatTrackData::Current().Rocks[Index][2] * MetresToUU);
 			Result.Add(Rock);
 		}
 		return Result;
 	}();
+	}
 	return Rocks;
 }
 
@@ -156,15 +164,15 @@ const TArray<FBoatRamp>& BoatTrack::GetRamps()
 	// Reversed, every ramp is turned round to face the oncoming boats.
 	static TArray<FBoatRamp> Ramps;
 	static int32 BuiltFor = -1;
-	if (BuiltFor != static_cast<int32>(GReversed))
+	if (BuiltFor != LayoutKey())
 	{
-		BuiltFor = static_cast<int32>(GReversed);
+		BuiltFor = LayoutKey();
 		Ramps.Reset();
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Ramps); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Ramps); ++Index)
 		{
 			FBoatRamp Ramp;
-			Ramp.Center = FromMetres(BoatTrackData::Ramps[Index][0], BoatTrackData::Ramps[Index][1]);
-			Ramp.Yaw = static_cast<float>(BoatTrackData::Ramps[Index][2]) + (GReversed ? 180.f : 0.f);
+			Ramp.Center = FromMetres(BoatTrackData::Current().Ramps[Index][0], BoatTrackData::Current().Ramps[Index][1]);
+			Ramp.Yaw = static_cast<float>(BoatTrackData::Current().Ramps[Index][2]) + (GReversed ? 180.f : 0.f);
 			Ramps.Add(Ramp);
 		}
 	}
@@ -183,81 +191,111 @@ bool BoatTrack::IsReversed()
 
 const TArray<FBoatWhirlpool>& BoatTrack::GetWhirlpools()
 {
-	static const TArray<FBoatWhirlpool> Pools = []()
+	static TArray<FBoatWhirlpool> Pools;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Pools = []()
 	{
 		TArray<FBoatWhirlpool> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Whirlpools); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Whirlpools); ++Index)
 		{
 			FBoatWhirlpool Pool;
-			Pool.Center = FromMetres(BoatTrackData::Whirlpools[Index][0], BoatTrackData::Whirlpools[Index][1]);
-			Pool.Radius = static_cast<float>(BoatTrackData::Whirlpools[Index][2] * MetresToUU);
+			Pool.Center = FromMetres(BoatTrackData::Current().Whirlpools[Index][0], BoatTrackData::Current().Whirlpools[Index][1]);
+			Pool.Radius = static_cast<float>(BoatTrackData::Current().Whirlpools[Index][2] * MetresToUU);
 			Result.Add(Pool);
 		}
 		return Result;
 	}();
+	}
 	return Pools;
 }
 
 const TArray<FVector2D>& BoatTrack::GetCratePoints()
 {
-	static const TArray<FVector2D> Points = []()
+	static TArray<FVector2D> Points;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Points = []()
 	{
 		TArray<FVector2D> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Crates); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Crates); ++Index)
 		{
-			Result.Add(FromMetres(BoatTrackData::Crates[Index][0], BoatTrackData::Crates[Index][1]));
+			Result.Add(FromMetres(BoatTrackData::Current().Crates[Index][0], BoatTrackData::Current().Crates[Index][1]));
 		}
 		return Result;
 	}();
+	}
 	return Points;
 }
 
 const TArray<FVector2D>& BoatTrack::GetDebrisPoints()
 {
-	static const TArray<FVector2D> Points = []()
+	static TArray<FVector2D> Points;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Points = []()
 	{
 		TArray<FVector2D> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Debris); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Debris); ++Index)
 		{
-			Result.Add(FromMetres(BoatTrackData::Debris[Index][0], BoatTrackData::Debris[Index][1]));
+			Result.Add(FromMetres(BoatTrackData::Current().Debris[Index][0], BoatTrackData::Current().Debris[Index][1]));
 		}
 		return Result;
 	}();
+	}
 	return Points;
 }
 
 const TArray<FBoatBarge>& BoatTrack::GetBarges()
 {
-	static const TArray<FBoatBarge> Barges = []()
+	static TArray<FBoatBarge> Barges;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Barges = []()
 	{
 		TArray<FBoatBarge> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Barges); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Barges); ++Index)
 		{
 			FBoatBarge Barge;
-			Barge.From = FromMetres(BoatTrackData::Barges[Index][0], BoatTrackData::Barges[Index][1]);
-			Barge.To = FromMetres(BoatTrackData::Barges[Index][2], BoatTrackData::Barges[Index][3]);
-			Barge.Period = FMath::Max(static_cast<float>(BoatTrackData::Barges[Index][4]), 1.f);
+			Barge.From = FromMetres(BoatTrackData::Current().Barges[Index][0], BoatTrackData::Current().Barges[Index][1]);
+			Barge.To = FromMetres(BoatTrackData::Current().Barges[Index][2], BoatTrackData::Current().Barges[Index][3]);
+			Barge.Period = FMath::Max(static_cast<float>(BoatTrackData::Current().Barges[Index][4]), 1.f);
 			Result.Add(Barge);
 		}
 		return Result;
 	}();
+	}
 	return Barges;
 }
 
 const TArray<FBoatLog>& BoatTrack::GetLogs()
 {
-	static const TArray<FBoatLog> Logs = []()
+	static TArray<FBoatLog> Logs;
+	static int32 BuiltFor = -1;
+	if (BuiltFor != LayoutKey())
+	{
+		BuiltFor = LayoutKey();
+		Logs = []()
 	{
 		TArray<FBoatLog> Result;
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Logs); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Logs); ++Index)
 		{
 			FBoatLog Log;
-			Log.Center = FromMetres(BoatTrackData::Logs[Index][0], BoatTrackData::Logs[Index][1]);
-			Log.Yaw = static_cast<float>(BoatTrackData::Logs[Index][2]);
+			Log.Center = FromMetres(BoatTrackData::Current().Logs[Index][0], BoatTrackData::Current().Logs[Index][1]);
+			Log.Yaw = static_cast<float>(BoatTrackData::Current().Logs[Index][2]);
 			Result.Add(Log);
 		}
 		return Result;
 	}();
+	}
 	return Logs;
 }
 
@@ -339,4 +377,32 @@ FLinearColor BoatTrack::GetPlayerColor(int32 Slot)
 	case 2:  return FLinearColor(0.95f, 0.65f, 0.02f); // yellow
 	default: return FLinearColor(0.05f, 0.65f, 0.15f); // green
 	}
+}
+
+const BoatTrackData::FLayout& BoatTrackData::Current()
+{
+    return Layouts[GTrackIndex];
+}
+
+void BoatTrack::SetCircuit(int32 Index) { GTrackIndex = FMath::Clamp(Index, 0, NumCircuits() - 1); }
+int32 BoatTrack::GetCircuit() { return GTrackIndex; }
+int32 BoatTrack::NumCircuits() { return UE_ARRAY_COUNT(BoatTrackData::Layouts); }
+int32 BoatTrack::GetLayoutKey() { return LayoutKey(); }
+const TCHAR* BoatTrack::CircuitName(int32 Index)
+{
+    static const TCHAR* Names[] = { TEXT("Bay Circuit"), TEXT("Harbour Sprint"), TEXT("Canyon Run") };
+    return Names[FMath::Clamp(Index, 0, NumCircuits() - 1)];
+}
+const TCHAR* BoatTrack::CircuitDescription(int32 Index)
+{
+    static const TCHAR* Descriptions[] = {
+        TEXT("TROPICAL / 3.0 km / Palm islands and turquoise water"),
+        TEXT("INDUSTRIAL / 2.5 km / Cargo cranes and working docks"),
+        TEXT("DESERT / 3.3 km / Sandstone mesas and a natural arch") };
+    return Descriptions[FMath::Clamp(Index, 0, NumCircuits() - 1)];
+}
+FString BoatTrack::RecordPrefix()
+{
+    return (GTrackIndex == 0 ? FString() : FString::Printf(TEXT("T%d_"), GTrackIndex))
+        + (GReversed ? TEXT("R") : TEXT(""));
 }

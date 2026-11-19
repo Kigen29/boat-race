@@ -10,7 +10,9 @@
 #include "OceanWaves.h"
 
 #include "Components/PointLightComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "CollisionQueryParams.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -24,6 +26,220 @@ namespace
 	{
 		const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
 		return RaceState ? RaceState->GetServerNow() : (World ? static_cast<float>(World->GetTimeSeconds()) : 0.f);
+	}
+}
+
+bool BoatCombat::HasClearShot(const ABoatPawn* Shooter, const ABoatPawn* Target)
+{
+	if (!IsValid(Shooter) || !IsValid(Target) || Shooter->GetWorld() != Target->GetWorld())
+	{
+		return false;
+	}
+	const UWorld* World = Shooter->GetWorld();
+	if (World == nullptr)
+	{
+		return false;
+	}
+	const FVector Start = Shooter->GetGunMuzzle();
+	const FVector End = Target->GetRaceLocation() + FVector(0.f, 0.f, 120.f);
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(BoatWeaponCover), false, Shooter);
+	Query.AddIgnoredActor(Target);
+	if (World->LineTraceTestByChannel(Start, End, ECC_Visibility, Query))
+	{
+		return false;
+	}
+	// The procedural coast also has distant sections without collision.
+	const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist2D(Start, End) / 500.f));
+	for (int32 Step = 1; Step < Steps; ++Step)
+	{
+		const FVector Point = FMath::Lerp(Start, End, static_cast<float>(Step) / Steps);
+		if (BayTerrain::GetHeight(FVector2D(Point.X, Point.Y)) > Point.Z)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// ===========================================================================
+// Deck gun effects
+// ===========================================================================
+namespace
+{
+	/** Faster than the eye follows but slow enough to see the line of fire. */
+	const float TracerSpeed = 42000.f;
+	const float TracerLength = 260.f;
+	const float FlashSeconds = 0.045f;
+}
+
+void FDeckGunEffects::Init(AActor* Owner, USceneComponent* AttachTo)
+{
+	const UWorld* World = Owner ? Owner->GetWorld() : nullptr;
+	if (World == nullptr || World->GetNetMode() == NM_DedicatedServer || AttachTo == nullptr)
+	{
+		return;
+	}
+	UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+	auto MakeMesh = [Owner, AttachTo, Sphere]()
+	{
+		UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(Owner);
+		Mesh->SetStaticMesh(Sphere);
+		Mesh->SetupAttachment(AttachTo);
+		// In the world, not on the boat: a round keeps its own line once fired.
+		Mesh->SetUsingAbsoluteLocation(true);
+		Mesh->SetUsingAbsoluteRotation(true);
+		Mesh->SetUsingAbsoluteScale(true);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Mesh->SetCastShadow(false);
+		Mesh->SetVisibility(false);
+		Mesh->RegisterComponent();
+		return Mesh;
+	};
+
+	// Ten rounds a second and under half a second of flight: six are enough.
+	Tracers.SetNum(6);
+	for (int32 Index = 0; Index < Tracers.Num(); ++Index)
+	{
+		UStaticMeshComponent* Mesh = MakeMesh();
+		Mesh->SetMaterial(0, BoatArt::GlowMaterial(Mesh, FLinearColor(22.f, 11.f, 2.f)));
+		TracerMeshes.Add(Mesh);
+	}
+	Strikes.SetNum(8);
+	for (int32 Index = 0; Index < Strikes.Num(); ++Index)
+	{
+		UStaticMeshComponent* Mesh = MakeMesh();
+		UMaterialInstanceDynamic* Material = BoatArt::SoftMaterial(Mesh, FLinearColor::White, 0.f);
+		Mesh->SetMaterial(0, Material);
+		StrikeMeshes.Add(Mesh);
+		StrikeMaterials.Add(Material);
+	}
+
+	FlashLight = NewObject<UPointLightComponent>(Owner);
+	FlashLight->SetupAttachment(AttachTo);
+	FlashLight->SetUsingAbsoluteLocation(true);
+	FlashLight->SetLightColor(FLinearColor(1.f, 0.72f, 0.35f));
+	FlashLight->SetAttenuationRadius(1400.f);
+	FlashLight->SetCastShadows(false);
+	FlashLight->SetIntensity(0.f);
+	FlashLight->RegisterComponent();
+
+	Flash = MakeMesh();
+	Flash->SetMaterial(0, BoatArt::GlowMaterial(Flash, FLinearColor(30.f, 17.f, 4.f)));
+}
+
+void FDeckGunEffects::Fire(const FVector& Muzzle, const FVector& End, bool bHull)
+{
+	if (!IsReady())
+	{
+		return;
+	}
+	FlashAge = 0.f;
+	FTracer& Tracer = Tracers[NextTracer];
+	NextTracer = (NextTracer + 1) % Tracers.Num();
+	if (Tracer.bLive)
+	{
+		Strike(Tracer.End, Tracer.bHull); // recycled before it landed: land it now
+	}
+	Tracer.Start = Muzzle;
+	Tracer.End = End;
+	Tracer.Age = 0.f;
+	Tracer.Life = static_cast<float>(FVector::Dist(Muzzle, End)) / TracerSpeed;
+	Tracer.bHull = bHull;
+	Tracer.bLive = true;
+}
+
+void FDeckGunEffects::Strike(const FVector& Location, bool bHull)
+{
+	FStrike& Hit = Strikes[NextStrike];
+	NextStrike = (NextStrike + 1) % Strikes.Num();
+	Hit.Location = Location;
+	Hit.Age = 0.f;
+	Hit.bHull = bHull;
+	Hit.bLive = true;
+}
+
+void FDeckGunEffects::Update(float DeltaSeconds, const FVector& Muzzle, const FVector& Forward)
+{
+	if (!IsReady())
+	{
+		return;
+	}
+
+	// The flash: a ragged tongue of flame for a frame or two after each round.
+	const bool bFlash = FlashAge < FlashSeconds;
+	FlashAge += DeltaSeconds;
+	Flash->SetVisibility(bFlash);
+	FlashLight->SetIntensity(bFlash ? 26000.f : 0.f);
+	if (bFlash)
+	{
+		const float Size = FMath::FRandRange(0.7f, 1.25f);
+		Flash->SetWorldLocation(Muzzle + Forward * (38.f * Size));
+		Flash->SetWorldRotation(Forward.Rotation());
+		Flash->SetWorldScale3D(FVector(0.85f * Size, 0.26f * Size, 0.26f * Size));
+		FlashLight->SetWorldLocation(Muzzle + Forward * 60.f);
+	}
+
+	for (int32 Index = 0; Index < Tracers.Num(); ++Index)
+	{
+		FTracer& Tracer = Tracers[Index];
+		UStaticMeshComponent* Mesh = TracerMeshes[Index];
+		if (!Tracer.bLive)
+		{
+			continue;
+		}
+		Tracer.Age += DeltaSeconds;
+		if (Tracer.Age >= Tracer.Life)
+		{
+			Tracer.bLive = false;
+			Mesh->SetVisibility(false);
+			Strike(Tracer.End, Tracer.bHull);
+			continue;
+		}
+		const FVector Line = Tracer.End - Tracer.Start;
+		const float Distance = static_cast<float>(Line.Size());
+		const FVector Direction = Line.GetSafeNormal();
+		// The streak never pokes back through the gun or past its mark.
+		const float Head = FMath::Min(TracerSpeed * Tracer.Age, Distance);
+		const float Length = FMath::Min(TracerLength, Head);
+		Mesh->SetWorldLocation(Tracer.Start + Direction * (Head - Length * 0.5f));
+		Mesh->SetWorldRotation(Direction.Rotation());
+		Mesh->SetWorldScale3D(FVector(Length / 100.f, 0.07f, 0.07f));
+		Mesh->SetVisibility(true);
+	}
+
+	for (int32 Index = 0; Index < Strikes.Num(); ++Index)
+	{
+		FStrike& Hit = Strikes[Index];
+		UStaticMeshComponent* Mesh = StrikeMeshes[Index];
+		if (!Hit.bLive)
+		{
+			continue;
+		}
+		Hit.Age += DeltaSeconds;
+		const float Life = Hit.bHull ? 0.16f : 0.42f;
+		const float U = Hit.Age / Life;
+		if (U >= 1.f)
+		{
+			Hit.bLive = false;
+			Mesh->SetVisibility(false);
+			continue;
+		}
+		if (Hit.bHull)
+		{
+			// A hot spark that swells and is gone.
+			Mesh->SetWorldLocation(Hit.Location);
+			Mesh->SetWorldScale3D(FVector(0.35f + 1.1f * U));
+			BoatArt::SetPuff(StrikeMaterials[Index], FLinearColor(12.f, 5.f, 0.8f), 0.9f * (1.f - U));
+		}
+		else
+		{
+			// A thin spout that jumps up and falls back.
+			const float Height = 190.f * FMath::Sin(U * PI * 0.5f);
+			Mesh->SetWorldLocation(Hit.Location + FVector(0.f, 0.f, Height * 0.5f));
+			Mesh->SetWorldScale3D(FVector(0.35f + 0.5f * U, 0.35f + 0.5f * U, 0.3f + Height / 100.f));
+			BoatArt::SetPuff(StrikeMaterials[Index], FLinearColor(0.92f, 0.96f, 1.f) * 1.4f, 0.6f * (1.f - U));
+		}
+		Mesh->SetVisibility(true);
 	}
 }
 
@@ -113,22 +329,38 @@ void ABoatMissile::BeginPlay()
 	}
 }
 
-void ABoatMissile::Launch(ABoatPawn* Shooter)
+bool ABoatMissile::CanLock(const ABoatPawn* Shooter, const ABoatPawn* Other, float Slack)
+{
+	if (!IsValid(Shooter) || !IsValid(Other) || Other == Shooter || Other->IsWrecked())
+	{
+		return false;
+	}
+	const FVector To = Other->GetRaceLocation() - Shooter->GetRaceLocation();
+	const float Distance = static_cast<float>(To.Size2D());
+	// A cone of about 45 degrees either side of the bow.
+	return Distance < GetDefault<ABoatMissile>()->LockRange * Slack
+		&& FVector::DotProduct(To.GetSafeNormal2D(), Shooter->GetActorForwardVector().GetSafeNormal2D()) > 0.7f / Slack
+		&& BoatCombat::HasClearShot(Shooter, Other);
+}
+
+void ABoatMissile::Launch(ABoatPawn* Shooter, ABoatPawn* Wanted, bool bPickNearest)
 {
 	FiredBy = Shooter;
-	// Lock on to the nearest boat in a cone ahead.
-	const FVector Forward = GetActorForwardVector();
+	if (CanLock(Shooter, Wanted, 1.3f))
+	{
+		Target = Wanted;
+		return;
+	}
+	if (!bPickNearest)
+	{
+		return; // fired without a lock: it flies straight
+	}
 	float Best = LockRange;
 	for (TActorIterator<ABoatPawn> It(GetWorld()); It; ++It)
 	{
 		ABoatPawn* Boat = *It;
-		if (Boat == Shooter || Boat->IsWrecked())
-		{
-			continue;
-		}
-		const FVector To = Boat->GetRaceLocation() - GetActorLocation();
-		const float Distance = static_cast<float>(To.Size2D());
-		if (Distance < Best && FVector::DotProduct(To.GetSafeNormal2D(), Forward.GetSafeNormal2D()) > 0.7f)
+		const float Distance = static_cast<float>(FVector::Dist2D(Boat->GetRaceLocation(), Shooter->GetRaceLocation()));
+		if (Distance < Best && CanLock(Shooter, Boat))
 		{
 			Best = Distance;
 			Target = Boat;
@@ -173,6 +405,10 @@ void ABoatMissile::Tick(float DeltaSeconds)
 	}
 
 	// Flares: a target that has fired them throws off the lock.
+	if (!IsValid(Target) || Target->IsWrecked())
+	{
+		Target = nullptr; // stop warning a boat the missile can no longer chase
+	}
 	if (Target != nullptr && !bDecoyed && Target->IsFlaring() && FVector::Dist(Location, Target->GetRaceLocation()) < 25000.f)
 	{
 		bDecoyed = true;
@@ -205,11 +441,19 @@ void ABoatMissile::Tick(float DeltaSeconds)
 	Next.Z = FMath::Max(Next.Z, Surface + 200.f);
 	SetActorLocationAndRotation(Next, Heading.Rotation());
 
-	const bool bNearTarget = Target != nullptr && FVector::Dist(Next, Target->GetRaceLocation()) < 450.f;
-	const bool bAtDecoy = bDecoyed && FVector::Dist(Next, Decoy) < 600.f;
+	// Check the whole movement segment: at low frame rates the missile can
+	// cross a hull between frames without either endpoint being close to it.
+	const FVector TargetPoint = Target != nullptr
+		? FMath::ClosestPointOnSegment(Target->GetRaceLocation(), Location, Next) : Next;
+	const bool bNearTarget = Target != nullptr && FVector::Dist(TargetPoint, Target->GetRaceLocation()) < 450.f;
+	const bool bAtDecoy = bDecoyed && FMath::PointDistToSegment(Decoy, Location, Next) < 600.f;
 	const bool bIntoLand = BayTerrain::GetHeight(FVector2D(Next.X, Next.Y)) > Next.Z - 100.f;
 	if (bNearTarget || bAtDecoy || bIntoLand || Age > 7.f)
 	{
+		if (bNearTarget)
+		{
+			SetActorLocation(TargetPoint);
+		}
 		Explode();
 	}
 }

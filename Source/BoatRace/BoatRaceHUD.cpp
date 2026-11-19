@@ -518,8 +518,12 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 	// A column of slanted bars: the selected one fills gold with dark text.
 	const bool bTable = Screen == EMenuScreen::Controls || Screen == EMenuScreen::Leaderboard;
 	const bool bGarage = Screen == EMenuScreen::Garage;
-	const float RowH = (bTable ? 40.f : 52.f) * Scale;
-	const float Gap = (bTable ? 4.f : 8.f) * Scale;
+	// Fit long lists between the header and footer, including all Back rows.
+	const float BottomReserve = (bGarage ? 310.f : 110.f) * Scale;
+	const float Available = FMath::Max(200.f * Scale, Height - 140.f * Scale - BottomReserve);
+	const float Pitch = FMath::Min((bTable ? 44.f : 60.f) * Scale, Available / FMath::Max(Items.Num(), 1));
+	const float Gap = FMath::Min((bTable ? 4.f : 8.f) * Scale, Pitch * 0.12f);
+	const float RowH = Pitch - Gap;
 	const float ListW = (bTable ? 1100.f : bGarage ? 620.f : 640.f) * Scale;
 	const float ListH = Items.Num() * (RowH + Gap);
 	const float X = bTable ? (Width - ListW) * 0.5f : 70.f * Scale;
@@ -546,8 +550,8 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 			DrawSkew(RowX, RowY, 6.f * Scale, RowH, Item.bEnabled ? WithAlpha(Cyan, 0.9f) : FLinearColor(1.f, 1.f, 1.f, 0.15f));
 		}
 		const FLinearColor Text = bSelected ? Night : (Item.bEnabled || bInfo ? Ink : Faint);
-		const float TextSize = (bTable ? 1.25f : 1.5f) * Scale;
-		const float TextY = RowY + RowH * 0.5f - (bTable ? 13.f : 16.f) * Scale;
+		const float TextSize = FMath::Min((bTable ? 1.25f : 1.5f) * Scale, RowH / 28.f);
+		const float TextY = RowY + RowH * 0.5f - 10.f * TextSize;
 		const FString Label = bTable ? Item.Label : Item.Label.ToUpper();
 		DrawLabel(Label, RowX + 30.f * Scale, TextY, TextSize, Text, 0.f, !bTable, !bTable);
 
@@ -570,7 +574,9 @@ void ABoatRaceHUD::DrawMenuScreen(float Width, float Height, float Scale)
 		if (!Item.Value.IsEmpty())
 		{
 			const FString Value = Item.bAdjustable ? FString::Printf(TEXT("<  %s  >"), *Item.Value) : Item.Value;
-			DrawLabel(Value, RowX + ListW - 24.f * Scale, TextY, TextSize,
+			const float ValueWidth = static_cast<float>(MeasureLabel(Value, TextSize, Item.bAdjustable).X);
+			const float ValueScale = TextSize * FMath::Min(1.f, ListW * (bTable ? 0.65f : 0.66f) / FMath::Max(ValueWidth, 1.f));
+			DrawLabel(Value, RowX + ListW - 24.f * Scale, TextY, ValueScale,
 				bSelected ? Night : (Item.bAdjustable ? Gold : (bTable ? Cyan : Dim)), 1.f, Item.bAdjustable, false);
 		}
 		RowY += RowH + Gap;
@@ -605,6 +611,42 @@ void ABoatRaceHUD::DrawTitleScreen(const TArray<FMenuItem>& Items, int32 Selecte
 	DrawLabel(TEXT("BOAT RACE"), 84.f * Scale, 30.f * Scale, 7.f * Scale, Ink, 0.f, true, true);
 	DrawLabel(TEXT("OFFSHORE POWERBOAT RACING"), 92.f * Scale, 130.f * Scale, 1.25f * Scale, Gold, 0.f, true, true);
 	DrawTopBar(FString(), Width, Scale);
+
+	// Course identity and route silhouette make selection a visible choice.
+	const float PreviewX = 80.f * Scale, PreviewY = 190.f * Scale;
+	const float PreviewW = 590.f * Scale, PreviewH = 270.f * Scale;
+	DrawRect(FLinearColor(0.01f, 0.025f, 0.045f, 0.9f), PreviewX, PreviewY, PreviewW, PreviewH);
+	DrawRect(Cyan, PreviewX, PreviewY, 4.f * Scale, PreviewH);
+	DrawLabel(BoatTrack::CircuitName(BoatTrack::GetCircuit()), PreviewX + 24.f * Scale, PreviewY + 18.f * Scale,
+		1.8f * Scale, Ink, 0.f, true, true);
+	DrawLabel(BoatTrack::CircuitDescription(BoatTrack::GetCircuit()), PreviewX + 24.f * Scale, PreviewY + 58.f * Scale,
+		0.88f * Scale, Dim);
+	const auto& PreviewGates = BoatTrack::GetGates();
+	FVector2D Min(BIG_NUMBER, BIG_NUMBER), Max(-BIG_NUMBER, -BIG_NUMBER);
+	for (const FBoatGate& Gate : PreviewGates)
+	{
+		Min.X = FMath::Min(Min.X, Gate.Center.X); Min.Y = FMath::Min(Min.Y, Gate.Center.Y);
+		Max.X = FMath::Max(Max.X, Gate.Center.X); Max.Y = FMath::Max(Max.Y, Gate.Center.Y);
+	}
+	const double RouteScale = FMath::Min((PreviewW - 70.f * Scale) / (Max.X - Min.X),
+		(PreviewH - 125.f * Scale) / (Max.Y - Min.Y));
+	auto Project = [&](const FVector2D& P)
+	{
+		return FVector2D(PreviewX + PreviewW * 0.5f, PreviewY + 165.f * Scale)
+			+ FVector2D(P.X - (Min.X + Max.X) * 0.5, -(P.Y - (Min.Y + Max.Y) * 0.5)) * RouteScale;
+	};
+	for (int32 Gate = 0; Gate < PreviewGates.Num(); ++Gate)
+	{
+		const FVector2D A = Project(PreviewGates[Gate].Center);
+		const FVector2D B = Project(PreviewGates[(Gate + 1) % PreviewGates.Num()].Center);
+		DrawLine(A.X, A.Y, B.X, B.Y, Cyan, 3.f * Scale);
+		DrawCircle(A, Gate == 0 ? 7.f * Scale : 3.f * Scale, Gate == 0 ? Gold : Ink);
+	}
+	const UBoatPrefs* PreviewPrefs = UBoatPrefs::Get(this);
+	const float Best = PreviewPrefs ? PreviewPrefs->GetBestLap() : 0.f;
+	DrawLabel(Best > 0.f ? FString::Printf(TEXT("PERSONAL BEST  %d:%05.2f"), FMath::FloorToInt(Best / 60.f), FMath::Fmod(Best, 60.f))
+		: FString(TEXT("SET YOUR FIRST LAP RECORD")), PreviewX + PreviewW - 20.f * Scale, PreviewY + PreviewH - 28.f * Scale,
+		0.95f * Scale, Gold, 1.f, true);
 
 	// Sort the lines: big tiles for the main modes, a setup panel for the
 	// race options, small links for the rest.
@@ -1126,13 +1168,68 @@ void ABoatRaceHUD::DrawRaceHud(const ABoatRaceGameState* RaceState, const TArray
 	DrawMiniMap(Standings, Me, Width, Height, Scale);
 	DrawDamageEdge(MyBoat, Width, Height);
 
+	// Our own missile sights: brackets that close on the boat ahead and turn
+	// red when the lock is good.
+	if (const ABoatPawn* Mark = MyBoat != nullptr ? MyBoat->GetLockTarget() : nullptr)
+	{
+		const FVector Aim = Mark->GetActorLocation() + FVector(0.f, 0.f, 90.f);
+		FVector ViewPoint;
+		FRotator ViewRotation;
+		Controller->GetPlayerViewPoint(ViewPoint, ViewRotation);
+		const FVector Screen = Project(Aim, false);
+		if (FVector::DotProduct(ViewRotation.Vector(), Aim - ViewPoint) > 0.0
+			&& Screen.X > 0.0 && Screen.X < Width && Screen.Y > 0.0 && Screen.Y < Height)
+		{
+			const float Progress = MyBoat->GetLockProgress();
+			const bool bLockedOn = Progress >= 1.f;
+			const float X = static_cast<float>(Screen.X);
+			const float Y = static_cast<float>(Screen.Y);
+			const float Half = FMath::Lerp(86.f, 34.f, Progress) * Scale;
+			const float Arm = Half * 0.45f;
+			const float Thick = (bLockedOn ? 4.f : 2.5f) * Scale;
+			const FLinearColor Colour = bLockedOn ? Bad : Accent;
+			for (const float Sx : { -1.f, 1.f })
+			{
+				for (const float Sy : { -1.f, 1.f })
+				{
+					DrawLine(X + Sx * Half, Y + Sy * Half, X + Sx * (Half - Arm), Y + Sy * Half, Colour, Thick);
+					DrawLine(X + Sx * Half, Y + Sy * Half, X + Sx * Half, Y + Sy * (Half - Arm), Colour, Thick);
+				}
+			}
+			const int32 Metres = FMath::RoundToInt(static_cast<float>(FVector::Dist2D(Mark->GetActorLocation(), MyBoat->GetActorLocation())) / 100.f);
+			DrawLabel(bLockedOn ? FString::Printf(TEXT("LOCKED  -  E  FIRE   %d m"), Metres) : FString::Printf(TEXT("LOCKING   %d m"), Metres),
+				X, Y + Half + 8.f * Scale, 1.1f * Scale, Colour, 0.5f, true);
+		}
+	}
+
 	// A missile has us: a flashing warning and a beep, until flares or impact.
 	if (MyBoat != nullptr)
 	{
 		bool bLocked = false;
+		const ABoatMissile* Incoming = nullptr;
 		for (TActorIterator<ABoatMissile> It(GetWorld()); It; ++It)
 		{
-			bLocked |= It->GetTarget() == MyBoat;
+			if (It->GetTarget() == MyBoat)
+			{
+				bLocked = true;
+				Incoming = *It;
+			}
+		}
+		if (Incoming != nullptr)
+		{
+			// An arrow round the middle of the screen, pointing at the missile
+			// as seen from the boat: straight down the screen is dead astern.
+			const FVector To = Incoming->GetActorLocation() - MyBoat->GetActorLocation();
+			const float Bearing = FMath::DegreesToRadians(FMath::FindDeltaAngleDegrees(static_cast<float>(MyBoat->GetActorRotation().Yaw),
+				FMath::RadiansToDegrees(FMath::Atan2(To.Y, To.X))));
+			const FVector2D Out(FMath::Sin(Bearing), -FMath::Cos(Bearing));
+			const FVector2D Side(-Out.Y, Out.X);
+			const FVector2D Tip = FVector2D(Width * 0.5f, Height * 0.5f) + Out * (Height * 0.3f);
+			const float S = 22.f * Scale;
+			DrawTriangle(Tip + Out * S, Tip - Out * S * 0.6f + Side * S * 0.8f, Tip - Out * S * 0.6f - Side * S * 0.8f, Bad);
+			const FVector2D Text = Tip - Out * (S * 2.2f);
+			DrawLabel(FString::Printf(TEXT("%d m"), FMath::RoundToInt(static_cast<float>(To.Size2D()) / 100.f)),
+				static_cast<float>(Text.X), static_cast<float>(Text.Y) - 8.f * Scale, 1.1f * Scale, Bad, 0.5f, true);
 		}
 		const float Now = static_cast<float>(GetWorld()->GetRealTimeSeconds());
 		if (bLocked)
@@ -1339,7 +1436,7 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	}
 
 	const float RightX = Width - 44.f * Scale;
-	float Y = Height - 262.f * Scale;
+	float Y = Height - 322.f * Scale;
 
 	const float HealthFraction = Boat->GetHealth() / FMath::Max(Boat->GetMaxHealth(), 1.f);
 	const FLinearColor HullColor = (HealthFraction > 0.55f) ? Good : (HealthFraction > 0.25f ? Accent : Bad);
@@ -1363,6 +1460,20 @@ void ABoatRaceHUD::DrawStatus(const ABoatPawn* Boat, float Width, float Height, 
 	DrawLabel(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Boost * 100.f)), RightX, Y, 1.1f * Scale, BoostColour, 1.f);
 	Y += 24.f * Scale;
 	DrawBar(RightX - 230.f * Scale, Y, 230.f * Scale, 9.f * Scale, Boost, BoostColour);
+	Y += 28.f * Scale;
+
+	// The deck gun: never runs out, but runs hot. Yellow warming to red, and
+	// flashing while it is jammed.
+	const float Heat = Boat->GetGunHeat();
+	const bool bJammed = Boat->IsGunJammed();
+	const bool bFlashOn = FMath::Fmod(static_cast<float>(GetWorld()->GetRealTimeSeconds()), 0.3f) < 0.18f;
+	const FLinearColor HeatColour = bJammed ? (bFlashOn ? Bad : FLinearColor(0.5f, 0.05f, 0.03f, 1.f))
+		: FLinearColor::LerpUsingHSV(FLinearColor(1.f, 0.85f, 0.1f, 1.f), FLinearColor(1.f, 0.12f, 0.05f, 1.f), Heat);
+	DrawLabel(TEXT("GUN     CTRL"), RightX - 230.f * Scale, Y, 1.1f * Scale, bJammed ? Faint : Dim);
+	DrawLabel(bJammed ? FString(TEXT("OVERHEATED")) : FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Heat * 100.f)),
+		RightX, Y, 1.1f * Scale, Heat > 0.02f ? HeatColour : Faint, 1.f);
+	Y += 24.f * Scale;
+	DrawBar(RightX - 230.f * Scale, Y, 230.f * Scale, 9.f * Scale, Heat, HeatColour);
 	Y += 28.f * Scale;
 
 	const int32 Torpedoes = Boat->GetTorpedoAmmo();
@@ -1408,8 +1519,13 @@ void ABoatRaceHUD::BuildMapLand(double Biggest)
 			if (Height > -0.3f)
 			{
 				const float T = FMath::Clamp((Height - 60.f) / 120.f, 0.f, 1.f);
-				const FLinearColor Land = Height < 2.5f ? FLinearColor(0.85f, 0.78f, 0.55f)
+				FLinearColor Land = Height < 2.5f ? FLinearColor(0.85f, 0.78f, 0.55f)
 					: FMath::Lerp(FLinearColor(0.32f, 0.55f, 0.24f), FLinearColor(0.42f, 0.4f, 0.36f), T);
+				if (BoatTrack::GetCircuit() == 1) { Land = FLinearColor(0.42f, 0.48f, 0.50f); }
+				else if (BoatTrack::GetCircuit() == 2)
+				{
+					Land = FMath::Lerp(FLinearColor(0.60f, 0.22f, 0.09f), FLinearColor(0.83f, 0.52f, 0.26f), T);
+				}
 				Colour = Land.ToFColor(true);
 				Colour.A = 230;
 			}
@@ -1433,6 +1549,12 @@ void ABoatRaceHUD::DrawMiniMap(const TArray<FStanding>& Standings, const ABoatRa
 		return;
 	}
 
+	if (MapLayoutKey != BoatTrack::GetLayoutKey())
+	{
+		MapLayoutKey = BoatTrack::GetLayoutKey();
+		bMapBoundsReady = false;
+		MapLand = nullptr;
+	}
 	if (!bMapBoundsReady)
 	{
 		MapMin = FVector2D(BIG_NUMBER, BIG_NUMBER);

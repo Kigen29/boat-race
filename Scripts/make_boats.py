@@ -25,7 +25,7 @@ def smoothstep(e0, e1, x):
 # Livery: a mask texture. R = the boat's own colour, G = the dark accent,
 # B = white pinstripes and roundel. M_Livery in Unreal mixes the colours.
 # ---------------------------------------------------------------------------
-def make_livery(name, width=1024, height=256, style=0):
+def make_livery(name, width=2048, height=512, style=0):
     path = os.path.join(TEXTURES, name + ".png")
     img = bpy.data.images.new(name, width, height, alpha=True)
     px = [0.0] * (width * height * 4)
@@ -443,6 +443,33 @@ def windscreen(m, x_front, half_w, z_base, height=0.42, rake=0.42, sweep=0.55, f
     tube(m, [tuple(v.co) for v in lower], 0.02, "Frame_111111", segs=6)
 
 
+def deck_gun(m, x, z, paint="Paint_E53935"):
+    """A pintle-mounted heavy machine gun on the foredeck, fixed to fire ahead.
+    (x, z) is where the pedestal meets the deck. The muzzle is 0.9 m ahead of
+    that and 0.5 m up: BoatGarage.cpp repeats it, so the tracers leave the
+    barrel. Move a gun here and move it there."""
+    gun, dark = "Steel_2A2D31", "Steel_17191C"
+    m.cyl(0.16, 0.16, 0.06, (x, 0, z), dark, segs=14)                                  # deck plate, let in a little
+    m.cyl(0.075, 0.05, 0.36, (x, 0, z + 0.2), gun, segs=12)                            # pedestal
+    m.box((0.1, 0.2, 0.05), (x, 0, z + 0.39), dark)                                    # cradle
+    for side in (1, -1):
+        m.box((0.1, 0.025, 0.14), (x, side * 0.09, z + 0.45), dark)
+    m.box((0.46, 0.11, 0.13), (x - 0.02, 0, z + 0.5), gun)                             # receiver
+    m.box((0.2, 0.09, 0.03), (x - 0.02, 0, z + 0.58), dark)                            # feed cover
+    m.cyl(0.036, 0.036, 0.34, (x + 0.38, 0, z + 0.5), dark, rot=(0, 90, 0), segs=10)   # barrel jacket
+    m.cyl(0.02, 0.02, 0.4, (x + 0.66, 0, z + 0.5), gun, rot=(0, 90, 0), segs=8)        # barrel
+    m.cyl(0.034, 0.03, 0.08, (x + 0.86, 0, z + 0.5), dark, rot=(0, 90, 0), segs=8)     # muzzle brake
+    m.box((0.2, 0.13, 0.17), (x + 0.02, 0.15, z + 0.46), "Box_4A5240")                 # ammunition box
+    m.box((0.1, 0.06, 0.02), (x + 0.02, 0.07, z + 0.55), "Chrome_C9A227")              # the belt going in
+    for side in (1, -1):                                                               # spade grips
+        m.box((0.14, 0.02, 0.02), (x - 0.31, side * 0.05, z + 0.5), dark)
+        m.box((0.025, 0.03, 0.12), (x - 0.38, side * 0.05, z + 0.5), "Rubber_151719")
+    # A splinter shield in the team colour, split round the barrel.
+    for side in (1, -1):
+        m.box((0.03, 0.26, 0.42), (x + 0.2, side * 0.17, z + 0.52), paint, rot=(0, -12, side * 10))
+    m.box((0.03, 0.1, 0.14), (x + 0.2, 0, z + 0.7), paint, rot=(0, -12, 0))
+
+
 def nav_lights(m, x_bow, y, z):
     m.sphere(0.035, (x_bow, y, z), "Lamp_FF1744", segs=8, rings=6)
     m.sphere(0.035, (x_bow, -y, z), "Lamp_00E676", segs=8, rings=6)
@@ -531,6 +558,7 @@ def offshore_boat():
         m.box((0.16, 0.05, 0.05), (1.2, side * 0.95, 0.56), "Chrome_C7CCD1")  # cleats
         m.box((0.16, 0.05, 0.05), (-3.1, side * 0.95, 0.53), "Chrome_C7CCD1")
     nav_lights(m, 3.3, 0.16, 0.66)
+    deck_gun(m, 2.2, 0.6)
     m.cyl(0.02, 0.012, 1.1, (-3.1, 0.0, 1.05), "Chrome_C7CCD1", segs=6)        # stern light pole
     m.sphere(0.04, (-3.1, 0.0, 1.6), "Lamp_FFFFFF", segs=8, rings=6)
     # Engine-hatch sunpad and a hatch outline on the foredeck.
@@ -574,6 +602,7 @@ def cigarette():
     m.box((1.5, 1.8, 0.16), (-3.4, 0, 0.6), "Paint_E53935")
     m.box((1.4, 1.6, 0.04), (-3.4, 0, 0.7), "Cushion_1C1C1C")
     nav_lights(m, 4.4, 0.12, 0.62)
+    deck_gun(m, 3.3, 0.61)
     m.box((0.32, 1.8, 0.5), (-4.8, 0, 0.12), "Bracket_1A1C1F")
     motors = [outboard(m, -5.1, y, 0.32, scale=1.05, stripe="Paint_E53935") for y in (-0.62, 0.0, 0.62)]
     crew = person(-1.45, 0.38, 0.2, hands=(-0.75, 0.38, 0.58), head="helmet", shirt="Suit_1E2126",
@@ -620,6 +649,7 @@ def tunnel_boat():
     for side in (1, -1):
         m.box((0.42, 0.04, 0.22), (-2.2, side * 0.86, 0.9), "Frame_111111")
     nav_lights(m, 2.8, 0.82, 0.48)
+    deck_gun(m, 1.75, 0.45)
     m.box((0.3, 0.5, 0.4), (-2.45, 0, 0.3), "Bracket_1A1C1F")
     motors = [outboard(m, -2.75, 0.0, 0.35, scale=1.15, stripe="Paint_E53935")]
     details = to_object("TunnelParts", m.bm, m.mats, smooth=False)
@@ -665,6 +695,7 @@ def patrol_rib():
     # Jockey seats behind the console.
     seats = [seat(m, -0.7, y, 0.45, w=0.5, colour="Seat_23272B", accent="Paint_E53935") for y in (0.35, -0.35)]
     nav_lights(m, 3.3, 0.5, 1.0)
+    deck_gun(m, 2.7, 0.75)
     m.box((0.3, 1.5, 0.5), (-3.85, 0, 0.18), "Bracket_1A1C1F")
     motors = [outboard(m, -4.1, y, 0.35, scale=1.0, cowl="Cowl_2B2E33", stripe="Paint_E53935") for y in (0.45, -0.45)]
     crew = person(0.0, 0.0, 0.55, pose="standing", shirt="Suit_2E3B2F", legs="Suit_2E3B2F", head="helmet",

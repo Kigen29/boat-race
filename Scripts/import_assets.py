@@ -317,6 +317,11 @@ def import_models():
         if not filename.lower().endswith(".glb"):
             continue
         name = os.path.splitext(filename)[0]
+        if os.environ.get("BOATRACE_ENV_ONLY") == "1" and name not in {
+            "HarbourCrane", "ContainerStack", "PortWarehouse", "HarbourBeacon",
+            "CanyonButte", "CanyonArch", "Cactus", "CanyonBoulder", "TropicalIslet"
+        }:
+            continue
         folder = "%s/Import/%s" % (MODELS_DEST, name)
         if editor_assets.does_directory_exist(folder):
             editor_assets.delete_directory(folder)
@@ -596,6 +601,10 @@ def run_step(label, step):
 
 def main():
     run_step("Blender models", import_models)
+    if os.environ.get("BOATRACE_ENV_ONLY") == "1":
+        run_step("save environments", lambda: editor_assets.save_directory(MODELS_DEST, False, True))
+        log("environment import done")
+        return
     run_step("scenery materials", build_scenery_materials)
     run_step("realistic materials", build_realistic_materials)
     run_step("save models", lambda: editor_assets.save_directory(MODELS_DEST, False, True))

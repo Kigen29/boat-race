@@ -30,6 +30,7 @@ enum class EMenuAction : uint8
 	Rivals,
 	Mode,
 	Track,
+	Direction,
 	Camera,
 	Steering,
 	Graphics,
@@ -97,6 +98,8 @@ public:
 	float GetSecondsSincePhoto() const { return PhotoClock; }
 	EMenuScreen GetMenuScreen() const { return MenuScreen; }
 	int32 GetMenuSelection() const { return MenuSelection; }
+	/** Shared by Escape, gamepad Back and the on-screen Back action. */
+	void GoBack();
 
 	/** The race's personal tally, shown under the results. */
 	struct FScoreCard
@@ -157,6 +160,7 @@ protected:
 	void ServerSetLoadout(FBoatLoadout Loadout);
 
 private:
+	friend class FBoatMenuNavigationTest;
 	void HandleAddressTyping();
 	/** Number keys on the menu join the races listed under "on your Wi-Fi". */
 	void JoinFoundRaceOnKeyPress();
@@ -191,6 +195,7 @@ private:
 	bool bLoadoutSent = false;
 	FBoatLoadout SentLoadout;
 	bool bGarageView = false;
+	int32 GarageLayoutKey = -1;
 	UPROPERTY()
 	TObjectPtr<class ACameraActor> GarageCamera;
 	UPROPERTY()
@@ -214,6 +219,7 @@ private:
 
 	// Time trial: the lap being recorded, the best lap's ghost.
 	TSharedPtr<struct FGhostLap> BestGhost;
+	mutable int32 GhostLayoutKey = -1;
 	TSharedPtr<struct FGhostLap> Recording;
 	UPROPERTY()
 	TObjectPtr<class AGhostBoat> Ghost;
@@ -233,6 +239,9 @@ private:
 	bool bCursorShown = false;
 
 	float TourClock = -1.f;
+	float MenuTourClock = 0.f;
+	int32 MenuTourStep = -1;
+	int32 MenuTourShot = -1;
 	int32 TourStep = -1;
 
 	bool bTypingAddress = false;

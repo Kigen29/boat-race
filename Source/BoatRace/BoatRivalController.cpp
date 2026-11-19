@@ -175,6 +175,10 @@ void ABoatRivalController::Tick(float DeltaSeconds)
 	{
 		Boat->SetDriverBoost(false);
 		Boat->SetDriverInput(0.f, 0.f);
+		// No shooting on the grid, nor in the scramble off it.
+		Boat->SetDriverGun(false);
+		bGunning = false;
+		NextGunTime = RaceState->GetServerNow() + 6.f;
 		StuckTime = 0.f;
 		return;
 	}
@@ -229,4 +233,27 @@ void ABoatRivalController::Tick(float DeltaSeconds)
 	Boat->SetDriverBoost(Throttle > 0.8f && FMath::Abs(Error) < 7.f && Boat->GetBoost() > (1.15f - Skill * 0.6f));
 	Boat->SetDriverInput(Throttle, Steer);
 	UseWeapons(Boat, Now);
+
+	// The deck gun: short bursts at a boat that has sat in the sights a
+	// moment, then a rest. A person holding the trigger out-shoots a rival;
+	// that is deliberate, three of them firing like a person would be a
+	// firing squad. Better rivals react sooner, fire from further off, hold
+	// the burst longer and land more of it.
+	const ABoatPawn* Mark = Boat->FindGunTarget();
+	const bool bInReach = Mark != nullptr
+		&& FVector::Dist2D(Mark->GetRaceLocation(), Boat->GetRaceLocation()) < Boat->GunRange * (0.3f + 0.4f * Skill);
+	GunSightTime = bInReach ? GunSightTime + DeltaSeconds : 0.f;
+	if (bGunning)
+	{
+		if (!bInReach || Boat->GetGunHeat() > 0.12f + 0.2f * Skill)
+		{
+			bGunning = false;
+			NextGunTime = Now + FMath::FRandRange(3.f, 5.f) / FMath::Max(Skill, 0.3f);
+		}
+	}
+	else if (bInReach && GunSightTime > 1.1f - 0.6f * Skill && Now > NextGunTime && Boat->GetGunHeat() < 0.05f)
+	{
+		bGunning = true;
+	}
+	Boat->SetDriverGun(bGunning, 0.2f + 0.35f * Skill);
 }

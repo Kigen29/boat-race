@@ -6,12 +6,61 @@ obstacle, that the barges actually cross the course, and that driving the
 racing line scores every gate in order while driving it backwards scores
 none. Edit the tables here rather than the generated header:
 
-    python3 Scripts/course_layout.py && mv BoatTrackData.h Source/BoatRace/
+    python3 Scripts/course_layout.py
+
+All three circuits are checked before the generated header is replaced.
 """
 import math
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# Generate every circuit atomically; a failed layout must never replace the
+# checked header. The worker retains the same geometric checks for each one.
+if "BOATRACE_LAYOUT_WORKER" not in os.environ:
+    sections = []
+    with tempfile.TemporaryDirectory() as folder:
+        for index, name in enumerate(("Bay Circuit", "Harbour Sprint", "Canyon Run")):
+            output = Path(folder) / f"course{index}.h"
+            result = subprocess.run([sys.executable, __file__], env={**os.environ,
+                "BOATRACE_LAYOUT_WORKER": str(index), "BOATRACE_LAYOUT_OUTPUT": str(output)},
+                capture_output=True, text=True)
+            print(f"\n{name}:\n{result.stdout}", end="")
+            if result.returncode:
+                print(result.stderr)
+                sys.exit(result.returncode)
+            sections.append(output.read_text().replace("#pragma once", "").replace(
+                "namespace BoatTrackData", f"namespace BoatCourse{index}"))
+    fields = [("RacingLine",16,2),("Rocks",9,3),("Ramps",4,3),("Whirlpools",3,3),
+              ("Crates",8,2),("Debris",12,2),("Logs",7,3),("Shore",16,4),("Barges",2,5)]
+    text = "#pragma once\n" + "\n".join(sections)
+    text += "\nnamespace BoatTrackData\n{\nstruct FLayout\n{\n"
+    text += "".join(f"    const double (&{name})[{count}][{width}];\n" for name,count,width in fields)
+    text += "};\nconst FLayout Layouts[] = {\n"
+    for i in range(3):
+        text += "    { " + ", ".join(f"BoatCourse{i}::{name}" for name,_,_ in fields) + " },\n"
+    text += "};\nconst double GateHalfWidthMetres = 45.0;\nconst double BargeChannelMetres = 34.0;\nconst double BargeOverrunMetres = 30.0;\nconst FLayout& Current();\n}\n"
+    target = Path(__file__).resolve().parents[1] / "Source/BoatRace/BoatTrackData.h"
+    temporary = target.with_suffix(".h.tmp")
+    temporary.write_text(text)
+    temporary.replace(target)
+    print(f"Wrote all three checked circuits to {target}")
+    sys.exit(0)
+
+LAYOUT = int(os.environ["BOATRACE_LAYOUT_WORKER"])
 HALF_W=45.0
 PTS=[(0,-480),(210,-480),(395,-425),(520,-295),(560,-110),(525,70),(400,135),(215,150),
      (75,275),(-105,330),(-300,315),(-435,195),(-495,25),(-465,-175),(-350,-335),(-180,-450)]
+if LAYOUT == 1:
+    # Compact harbour: long quay straight, broad eastern basin, tight return.
+    PTS=[(0,-360),(170,-360),(330,-330),(440,-220),(465,-65),(420,90),(300,180),(135,185),
+         (0,200),(-110,265),(-260,250),(-390,150),(-420,-10),(-380,-180),(-270,-290),(-135,-350)]
+elif LAYOUT == 2:
+    # Longer canyon: sweeping east coast, inland dogleg, western acceleration.
+    PTS=[(0,-490),(230,-480),(440,-395),(570,-235),(580,-25),(480,150),(290,220),(140,180),
+         (10,280),(-160,390),(-370,360),(-540,210),(-570,0),(-510,-210),(-360,-390),(-180,-470)]
 N=len(PTS)
 sub=lambda a,b:(a[0]-b[0],a[1]-b[1]); add=lambda a,b:(a[0]+b[0],a[1]+b[1])
 mul=lambda a,s:(a[0]*s,a[1]*s); dot=lambda a,b:a[0]*b[0]+a[1]*b[1]
@@ -36,7 +85,15 @@ POOLS =[(2,.50,50,30),(6,.50,-50,28),(10,.50,50,30)]
 CRATES=[(0,.80,-8),(2,.25,10),(4,.75,-10),(5,.80,8),(7,.80,-9),(9,.75,9),(11,.80,-8),(14,.25,10)]
 DEBRIS=[(1,.20,34),(1,.75,-32),(3,.30,30),(4,.25,-34),(6,.40,33),(6,.85,-30),
         (8,.20,31),(9,.20,-33),(10,.60,32),(12,.25,-31),(13,.70,30),(15,.40,-33)]
+if LAYOUT == 2:
+    DEBRIS=[(seg, .65 if seg == 6 and t == .85 else t, off) for seg,t,off in DEBRIS]
 BARGES=[((340,-230),(640,-230),44.0),((-370,-140),(-640,-140),52.0)]
+if LAYOUT:
+    BARGES=[]
+    for seg, fraction, period in ((3,.15,44.0),(12,.8,52.0)):
+        a,_=on_line(seg,fraction,-100)
+        b,_=on_line(seg,fraction,100)
+        BARGES.append((a,b,period))
 # Floating logs: segment, fraction, offset (solid, like the debris barrels)
 LOGS  =[(0,.30,-30),(3,.75,-31),(5,.40,30),(7,.25,-32),(11,.25,31),(13,.20,-31),(15,.75,30)]
 # The land. For each racing-line point: how far the water reaches on the
@@ -50,6 +107,10 @@ SHORE=[ # inside, outside, cliff in, cliff out
  (100,110,0.1,1.0),( 95,100,0.0,0.8),( 70, 72,0.2,0.4),( 80, 95,0.1,0.1)]
 # Barges run in their own dredged channels this wide either side of the path,
 # carried on past each end so the barge never touches the bank.
+if LAYOUT == 1:
+    SHORE=[(a,b,ci*.3,co*.3) for a,b,ci,co in SHORE]
+elif LAYOUT == 2:
+    SHORE=[(a,b, max(ci,.7) if i else ci, max(co,.7) if i else co) for i,(a,b,ci,co) in enumerate(SHORE)]
 BARGE_CHANNEL=34.0; BARGE_OVERRUN=30.0
 fail=0; solid=[]
 def check(name,items,rad,mingate,collect=False):
@@ -135,6 +196,8 @@ for lp in range(3):
         a = path[-1] if (lp==0 and i==0) else PTS[i]; b=PTS[(i+1)%N]
         steps=int(dist(a,b)/1.2)+1
         for k in range(1,steps+1): path.append(add(a,mul(sub(b,a),k/steps)))
+# Continue beyond the finish: an exact endpoint can round just short of its gate.
+path.append(add(g0['c'],mul(g0['f'],5)))
 nxt=0;laps=-1;passed=0;prev=path[0]
 for q in path[1:]:
     if crossed(gates[nxt],prev,q):
@@ -154,6 +217,8 @@ print("driving it backwards scores %d gates (want 0)" % rev)
 lap=sum(dist(PTS[i],PTS[(i+1)%N]) for i in range(N))
 print("lap %.0f m   %d gates   width %.0f m   lap time at 23 m/s %.0f s" % (lap,N,HALF_W*2,lap/23))
 print("FAILURES: %d" % fail)
+if fail:
+    sys.exit(1)
 L=["#pragma once\n",
  "// Generated and checked by Scripts/course_layout.py: gate lines never cross,",
  "// every obstacle clears the gate lines and the other obstacles, driving the",
@@ -179,4 +244,4 @@ emit("Shore",SHORE,"Shore per racing-line point: water reach inside, outside (m)
 L.append("\tconst double BargeChannelMetres = %.1f;\n\tconst double BargeOverrunMetres = %.1f;\n" % (BARGE_CHANNEL,BARGE_OVERRUN))
 emit("Barges",[(a[0],a[1],b[0],b[1],per) for a,b,per in BARGES],"Moving barges: from X, Y, to X, Y, round-trip seconds",5)
 L.append("}")
-open("BoatTrackData.h","w").write("\n".join(L)+"\n")
+Path(os.environ["BOATRACE_LAYOUT_OUTPUT"]).write_text("\n".join(L)+"\n")

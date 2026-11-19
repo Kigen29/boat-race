@@ -10,6 +10,6 @@ if [ -z "$BLENDER" ]; then
 	exit 1
 fi
 cd "$PROJECT_DIR"
-"$BLENDER" -b --factory-startup -P Scripts/make_models.py -- Art/Models Saved/ModelPreviews "$@" \
-	| grep -E '^model|^exported|^previews|Error|Traceback' || true
+"$BLENDER" -b --factory-startup --python-exit-code 1 -P Scripts/make_models.py -- Art/Models Saved/ModelPreviews "$@" \
+	| grep -E '^model|^exported|^previews|Error|Traceback'
 ls Art/Models/*.glb >/dev/null

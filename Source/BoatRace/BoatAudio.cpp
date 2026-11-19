@@ -2,6 +2,7 @@
 
 #include "BoatRace.h"
 #include "BoatRaceGameState.h"
+#include "BoatTrack.h"
 #include "RaceWeather.h"
 
 #include "Components/AudioComponent.h"
@@ -645,6 +646,57 @@ namespace
 		return Out;
 	}
 
+	FBuffer MakeGunFire()
+	{
+		// Five shots in exactly half a second, so the loop joins itself with
+		// no fade: each is a crack, a bark from the barrel and a thump you
+		// feel, and has died away before the next. No two are quite alike.
+		FBuffer Out = Silence(0.5f);
+		FRandomStream Random(83);
+		const int32 Shots = 5;
+		const int32 Spacing = Out.Num() / Shots;
+		for (int32 Shot = 0; Shot < Shots; ++Shot)
+		{
+			FLowPass Bark(1500.f + Random.FRandRange(-200.f, 200.f));
+			FHighPass Crack(2800.f);
+			const float Level = Random.FRandRange(0.85f, 1.f);
+			const float Thump = Random.FRandRange(120.f, 150.f);
+			float Phase = 0.f;
+			for (int32 Index = 0; Index < Spacing; ++Index)
+			{
+				const float Time = T(Index);
+				const float White = Random.FRandRange(-1.f, 1.f);
+				Phase += (Thump * FMath::Exp(-Time / 0.05f) + 55.f) / Rate;
+				Out[Shot * Spacing + Index] = Level * (Crack(White) * 0.9f * FMath::Exp(-Time / 0.004f)
+					+ Bark(White) * 2.2f * FMath::Exp(-Time / 0.022f)
+					+ FMath::Sin(TwoPi * Phase) * 0.9f * FMath::Exp(-Time / 0.03f));
+			}
+		}
+		SoftClip(Out, 1.6f);
+		Normalise(Out, 0.75f);
+		return Out;
+	}
+
+	FBuffer MakeGunHit()
+	{
+		// A round on a hull: a tick, a ring of struck metal, and the whine of
+		// the ricochet falling away.
+		FBuffer Out = Silence(0.3f);
+		FRandomStream Random(89);
+		float Phase = 0.f;
+		for (int32 Index = 0; Index < Out.Num(); ++Index)
+		{
+			const float Time = T(Index);
+			Phase += (1700.f + 2100.f * FMath::Exp(-Time / 0.07f)) / Rate;
+			Out[Index] = Random.FRandRange(-1.f, 1.f) * FMath::Exp(-Time / 0.003f)
+				+ (FMath::Sin(TwoPi * 2150.f * Time) + 0.6f * FMath::Sin(TwoPi * 3370.f * Time) + 0.35f * FMath::Sin(TwoPi * 5120.f * Time))
+					* 0.4f * FMath::Exp(-Time / 0.035f)
+				+ FMath::Sin(TwoPi * Phase) * 0.3f * FMath::Exp(-Time / 0.09f);
+		}
+		Normalise(Out, 0.6f);
+		return Out;
+	}
+
 	FBuffer MakeMissileLaunch()
 	{
 		// Ignition crack, then a rocket's tearing roar dropping away.
@@ -785,6 +837,8 @@ namespace
 		case EBoatSound::Grenade:   Buffer = MakeGrenadeThrow(); break;
 		case EBoatSound::Coin:      Buffer = MakeCoin(); break;
 		case EBoatSound::Purchase:  Buffer = MakePurchase(); break;
+		case EBoatSound::GunFire:   Buffer = MakeGunFire(); break;
+		case EBoatSound::GunHit:    Buffer = MakeGunHit(); break;
 		default:                    Buffer = Silence(0.1f); break;
 		}
 		Slot = ToPcm(Buffer);
@@ -1024,7 +1078,7 @@ void UBoatAudioSubsystem::UpdateBeds(float DeltaTime)
 	}
 
 	const double Now = World ? World->GetTimeSeconds() : 0.0;
-	if (Look.bGulls && Now > NextGullTime)
+	if (Look.bGulls && BoatTrack::GetCircuit() != 2 && Now > NextGullTime)
 	{
 		NextGullTime = Now + FMath::FRandRange(7.f, 16.f);
 		Play2D(EBoatSound::Gull, FMath::FRandRange(0.15f, 0.3f), FMath::FRandRange(0.85f, 1.15f));

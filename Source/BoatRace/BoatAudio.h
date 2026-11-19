@@ -41,6 +41,8 @@ enum class EBoatSound : uint8
 	Grenade,
 	Coin,        // a bright two-note chime
 	Purchase,    // the till: a coin rattle and a ding
+	GunFire,     // loop: the deck gun, ten shots a second
+	GunHit,      // a round striking a hull
 	Count
 };
 

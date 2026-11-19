@@ -137,4 +137,5 @@ private:
 	FVector2D MapMin = FVector2D::ZeroVector;
 	FVector2D MapMax = FVector2D::ZeroVector;
 	bool bMapBoundsReady = false;
+	int32 MapLayoutKey = -1;
 };

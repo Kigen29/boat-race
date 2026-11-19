@@ -133,6 +133,7 @@ public:
 		int32 Racers = 0;
 		float Seconds = 0.f;
 		bool bReverse = false;
+		int32 CircuitIndex = 0;
 		FString Date;
 	};
 	TArray<FBoardRow> GetBoard() const;

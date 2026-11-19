@@ -462,6 +462,21 @@ def start_gantry():
         for row in range(2):
             black = (k + row) % 2 == 0
             m.box((0.12, 3.0, 1.3), (0, k * 3.0, 16.2 - row * 1.3), "Check_111111" if black else "Check_FAFAFA")
+    # Bunting along the top of the truss and feather flags on the towers.
+    colours = ["Flag_E53935", "Flag_FDD835", "Flag_1E88E5", "Flag_43A047", "Flag_FF6D00", "Flag_F50057"]
+    for k in range(-24, 24):
+        if abs(k * 2.05 + 1.0) < 5.5:
+            continue  # the light panel stands here
+        y0, y1, top = k * 2.05 + 0.15, k * 2.05 + 1.9, 20.15
+        index = m.mat(colours[k % len(colours)])
+        for x, order in ((0.93, 1), (-0.93, -1)):
+            tri = [m.bm.verts.new((x, y0, top)), m.bm.verts.new((x, y1, top)), m.bm.verts.new((x, (y0 + y1) / 2, top + 1.5))]
+            for face in (tri, list(reversed(tri))):
+                f = m.bm.faces.new([m.bm.verts.new(v.co) for v in face])
+                f.material_index = index
+    for side in (1, -1):
+        m.cyl(0.07, 0.05, 6.0, (0, side * span, 22.5), "Post_ECEFF1", segs=8)
+        m.box((0.06, 1.6, 4.2), (0, side * span - side * 0.85, 23.2), colours[0] if side > 0 else colours[2])
     # Start lights
     m.box((0.6, 9.0, 1.6), (0.6, 0, 21.6), "Panel_111111")
     for k in range(5):
@@ -932,12 +947,128 @@ def hangar():
     return obj
 
 
+def harbour_crane():
+    m = Model("HarbourCrane")
+    for x in (-6, 6):
+        for y in (-5, 5):
+            m.box((1.0, 1.0, 28), (x, y, 14), "Steel_E9A623")
+        m.box((1.0, 12, 1.0), (x, 0, 25), "Steel_E9A623")
+        for z in (8, 16, 24):
+            m.box((.45, 12, .45), (x, 0, z), "Steel_536775", rot=(36, 0, 0))
+    m.box((46, 3, 2.3), (10, 0, 29), "Steel_E9A623")
+    m.box((9, 7, 4), (-9, 0, 28), "Steel_37474F")
+    m.box((4, 4, 4), (5, 0, 25), "Paint_F1B52B")
+    m.box((.1, 3.6, 2.2), (7.1, 0, 25.4), "Glass_527B8C")
+    m.box((.15, .15, 17), (29, 0, 20), "Steel_263238")
+    m.box((4, 2, 1.5), (29, 0, 11), "Steel_263238")
+    for x in range(-12, 33, 4):
+        m.box((.25, 3, 3.5), (x, 0, 31), "Steel_E9A623", rot=(30, 0, 0))
+    m.cyl(.5, .5, .8, (-8, 0, 31), "Lamp_FF5722")
+    return m.export()
+
+
+def container_stack():
+    m = Model("ContainerStack")
+    colours = ["Paint_C74531", "Paint_287B94", "Paint_D7A537", "Paint_476E65"]
+    for row in range(3):
+        for col in range(3):
+            for tier in range(2 + (row + col) % 2):
+                x, y, z = col * 12.5 - 12.5, row * 3.2 - 3.2, tier * 3 + 1.5
+                mat = colours[(row + col + tier) % len(colours)]
+                m.box((12, 2.8, 2.8), (x, y, z), mat)
+                for rib in range(-5, 6):
+                    for side in (-1, 1):
+                        m.box((.12, .1, 2.6), (x + rib, y + side * 1.45, z), "Steel_7A8585")
+                for side in (-1, 1):
+                    m.box((.12, 2.7, .15), (x + side * 6.05, y, z - 1.3), "Steel_B0BEC5")
+    return m.export()
+
+
+def port_warehouse():
+    m = Model("PortWarehouse")
+    m.box((45, 24, 15), (0, 0, 7.5), "Steel_5B6D78")
+    for side in (-1, 1):
+        m.box((46, 13, .5), (0, side * 6, 16.8), "Steel_344C60", rot=(-side * 16, 0, 0))
+        for x in (-15, 0, 15):
+            m.box((8, .3, 8), (x, side * 12.2, 4.1), "Steel_273C4A")
+            m.box((9, .35, 1), (x, side * 12.3, 9), "Paint_E5B63B")
+            m.box((5, .35, 1), (x, side * 12.3, 12.7), "Glass_84B1BD")
+    for x in (-19, 19):
+        m.cyl(2.2, 2.2, 28, (x, 8, 14), "Steel_B8BFC3", segs=12)
+        m.cyl(2.3, 2.3, 2, (x, 8, 25), "Paint_BF463A", segs=12)
+    return m.export()
+
+
+def harbour_beacon():
+    m = Model("HarbourBeacon")
+    m.box((2.2, 2.2, .6), (0, 0, .3), "Concrete_88959B")
+    for x in (-.6, .6):
+        for y in (-.6, .6):
+            m.box((.15, .15, 2.5), (x, y, 1.8), "Steel_E3A82A")
+    m.box((1.8, 1.8, .2), (0, 0, 3), "Steel_344955")
+    m.box((.8, .8, .6), (0, 0, 3.4), "Paint_E3A82A")
+    m.cyl(.25, .25, .4, (0, 0, 3.9), "Lamp_FF5722", segs=12)
+    return m.export()
+
+
+def canyon_butte():
+    m = Model("CanyonButte")
+    colours = ["Rock_A84C2B", "Rock_C76B38", "Rock_E3A25D", "Rock_923D2B", "Rock_D47D43"]
+    for layer in range(10):
+        radius = 1.1 - .045 * layer + (.17 if layer % 3 == 0 else 0)
+        m.cyl(radius, radius * .97, .68, (0, 0, layer * .64 + .34), colours[layer % 5], segs=9, smooth=False)
+    return m.export()
+
+
+def canyon_arch():
+    m = Model("CanyonArch")
+    for side in (-1, 1):
+        m.blob(1, (0, side * 88, 30), "Rock_B65731", scale=(16, 14, 32), lump=.18, seed=9, smooth=False)
+    for index in range(18):
+        a, b = -88 + index * (176 / 18), -88 + (index + 1) * (176 / 18)
+        za = 56 + 45 * math.sqrt(max(0, 1 - (a / 90) ** 2))
+        zb = 56 + 45 * math.sqrt(max(0, 1 - (b / 90) ** 2))
+        m.box((19, math.hypot(b-a, zb-za) + 2, 13), (0, (a+b)/2, (za+zb)/2),
+              "Rock_D1874F" if index % 3 else "Rock_A84C2B", rot=(math.degrees(math.atan2(zb-za, b-a)), 0, 0))
+    return m.export()
+
+
+def cactus():
+    m = Model("Cactus")
+    m.cyl(.48, .4, 6, (0, 0, 3), "Leaf_54774A", segs=10)
+    m.sphere(.4, (0, 0, 6), "Leaf_54774A", segs=10, rings=6)
+    for side, z in ((-1, 2.8), (1, 4.0)):
+        m.cyl(.28, .28, 1.6, (side*.8, 0, z), "Leaf_628855", rot=(0, 90, 0), segs=8)
+        m.cyl(.28, .23, 1.8, (side*1.5, 0, z+.8), "Leaf_628855", segs=8)
+        m.sphere(.24, (side*1.5, 0, z+1.7), "Leaf_628855", segs=8, rings=6)
+    return m.export()
+
+
+def canyon_boulder():
+    m = Model("CanyonBoulder")
+    m.blob(1, (0, 0, .65), "Rock_C47743", scale=(1.5, 1, .95), lump=.28, seed=54, smooth=False)
+    return m.export()
+
+
+def tropical_islet():
+    m = Model("TropicalIslet")
+    m.blob(1, (0, 0, .55), "Rock_E9DCC1", scale=(1.15, 1.0, .85), lump=.18, seed=36, smooth=False)
+    return m.export()
+
+
+ENVIRONMENTS = [harbour_crane, container_stack, port_warehouse, harbour_beacon,
+                canyon_butte, canyon_arch, cactus, canyon_boulder, tropical_islet]
+
 BUILD = [lambda: round_tree("TreeRound", "Leaf_5CB646", 3, 9.0),
-         lambda: round_tree("TreeTall", "Leaf_3F9B3A", 11, 12.0), pine, palm, bush,
+         lambda: round_tree("TreeTall", "Leaf_3F9B3A", 11, 12.0),
+         lambda: round_tree("TreeBlossom", "Leaf_F27BA6", 5, 8.0),
+         lambda: round_tree("TreeAutumn", "Leaf_E8741C", 17, 9.5), pine, palm, bush,
          lambda: rock("RockA", 21, (1.4, 1.0, 0.8), True), lambda: rock("RockB", 22, (1.0, 1.1, 1.2), False),
          lambda: rock("RockC", 23, (1.8, 1.2, 0.6), True), sea_stack, pylon, rope_float, ramp, start_gantry,
          barge, cottage, lighthouse, pier, grandstand, tent, flag, banner, bridge, duck,
-         torpedo, mine, crate, barrel, log, ice_floe, hangar] + BOATS
+         torpedo, mine, crate, barrel, log, ice_floe, hangar] + BOATS + ENVIRONMENTS
+if os.environ.get("BOATRACE_ENV_ONLY") == "1":
+    BUILD = ENVIRONMENTS
 
 
 def render_previews(objects):

@@ -98,7 +98,7 @@ void ACourseCoins::BeginPlay()
 
 void ACourseCoins::Build()
 {
-	BuiltFor = BoatTrack::IsReversed() ? 1 : 0;
+	BuiltFor = BoatTrack::GetLayoutKey();
 	Spots.Reset();
 	const TArray<FBoatGate>& Gates = BoatTrack::GetGates();
 	for (int32 Leg = 0; Leg < Gates.Num(); ++Leg)
@@ -165,7 +165,7 @@ void ACourseCoins::Tick(float DeltaSeconds)
 	{
 		return;
 	}
-	if (BuiltFor != (BoatTrack::IsReversed() ? 1 : 0))
+	if (BuiltFor != (BoatTrack::GetLayoutKey()))
 	{
 		Build(); // the track was turned round
 	}

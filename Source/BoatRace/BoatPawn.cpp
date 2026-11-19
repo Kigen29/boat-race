@@ -24,6 +24,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
@@ -248,6 +249,9 @@ void ABoatPawn::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME_CONDITION(ABoatPawn, FlareAmmo, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(ABoatPawn, GrenadeAmmo, COND_OwnerOnly);
 	DOREPLIFETIME(ABoatPawn, FlaringUntil);
+	DOREPLIFETIME(ABoatPawn, bGunFiring);
+	DOREPLIFETIME_CONDITION(ABoatPawn, GunHeatNet, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(ABoatPawn, bGunJammed, COND_OwnerOnly);
 }
 
 float ABoatPawn::GetWaveTime() const
@@ -343,8 +347,14 @@ void ABoatPawn::Tick(float DeltaSeconds)
 		FollowReportedState(DeltaSeconds);
 	}
 
+	if (HasAuthority())
+	{
+		UpdateGun(DeltaSeconds);
+	}
+
 	UpdateCosmetics(DeltaSeconds);
 	UpdateEffects(DeltaSeconds);
+	UpdateGunEffects(DeltaSeconds);
 	UpdateAudio(DeltaSeconds);
 }
 
@@ -361,6 +371,7 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 	if (MenuOwner != nullptr && MenuOwner->IsMenuOpen())
 	{
 		// The keys are steering the menu, not the boat.
+		HoldGun(false);
 		InputThrottle = 0.f;
 		InputSteer = FMath::FInterpTo(InputSteer, 0.f, DeltaSeconds, 8.f);
 		return;
@@ -440,7 +451,7 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 	// Boost: hold SHIFT or the right bumper.
 	bWantBoost = PlayerController->IsInputKeyDown(EKeys::LeftShift) || PlayerController->IsInputKeyDown(EKeys::RightShift)
 		|| PlayerController->IsInputKeyDown(EKeys::Gamepad_RightShoulder);
-	// Camera: C cycles the views, B (or the left bumper) looks behind.
+	// Camera: C cycles the views, B (or a click of the left stick) looks behind.
 	if (PlayerController->WasInputKeyJustPressed(EKeys::C) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_RightThumbstick))
 	{
 		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this))
@@ -448,7 +459,7 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 			Prefs->CycleCamera(1);
 		}
 	}
-	bLookBack = PlayerController->IsInputKeyDown(EKeys::B) || PlayerController->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);
+	bLookBack = PlayerController->IsInputKeyDown(EKeys::B) || PlayerController->IsInputKeyDown(EKeys::Gamepad_LeftThumbstick);
 	if (const UBoatPrefs* Prefs = UBoatPrefs::Get(this))
 	{
 		Steer *= Prefs->SteeringSensitivity;
@@ -473,9 +484,14 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 			ServerFireTorpedo();
 		}
 		// E missile, F flares, G grenade (pad: B, D-pad down, D-pad up).
+		// The sights lock by themselves; T (D-pad right) picks another boat.
+		UpdateMissileLock(DeltaSeconds, PlayerController->WasInputKeyJustPressed(EKeys::T)
+			|| PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Right));
 		if (PlayerController->WasInputKeyJustPressed(EKeys::E) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
 		{
-			ServerFireMissile();
+			// Locked, it follows that boat. Not locked, it goes where the bow points.
+			ServerFireMissile(LockProgress >= 1.f ? LockTarget.Get() : nullptr);
+			LockProgress = 0.f; // the next one has to lock afresh
 		}
 		if (PlayerController->WasInputKeyJustPressed(EKeys::F) || PlayerController->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Down))
 		{
@@ -489,6 +505,22 @@ void ABoatPawn::ReadInput(float DeltaSeconds)
 		{
 			ServerDropMine();
 		}
+	}
+
+	// The deck gun fires for as long as CTRL, X or the left bumper is held.
+	// -GunAlways holds it down, for screenshots and the network test.
+	static const bool bGunAlways = FParse::Param(FCommandLine::Get(), TEXT("GunAlways"));
+	HoldGun(!bWrecked && (bGunAlways
+		|| PlayerController->IsInputKeyDown(EKeys::LeftControl) || PlayerController->IsInputKeyDown(EKeys::RightControl)
+		|| PlayerController->IsInputKeyDown(EKeys::X) || PlayerController->IsInputKeyDown(EKeys::Gamepad_LeftShoulder)));
+}
+
+void ABoatPawn::HoldGun(bool bHeld)
+{
+	if (bHeld != bGunHeld)
+	{
+		bGunHeld = bHeld;
+		ServerSetGun(bHeld);
 	}
 }
 
@@ -971,7 +1003,7 @@ bool ABoatPawn::IsInvulnerable() const
 	return Now < InvulnerableUntil;
 }
 
-bool ABoatPawn::ApplyDamage(float Amount, ABoatRacePlayerState* Attacker)
+bool ABoatPawn::ApplyDamage(float Amount, ABoatRacePlayerState* Attacker, bool bSmallArms)
 {
 	if (!HasAuthority() || bWrecked || Amount <= 0.f || IsInvulnerable())
 	{
@@ -979,7 +1011,21 @@ bool ABoatPawn::ApplyDamage(float Amount, ABoatRacePlayerState* Attacker)
 	}
 
 	Health = FMath::Max(Health - Amount, 0.f);
-	ClientHitFeedback();
+	if (!bSmallArms)
+	{
+		ClientHitFeedback(1.f);
+	}
+	else
+	{
+		// Ten bullets a second: a rattle a few times a second says as much as
+		// a jolt for every round, and is far less to send.
+		const float Clock = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+		if (Clock - LastSmallArmsFeedback > 0.3f || Health <= 0.f)
+		{
+			LastSmallArmsFeedback = Clock;
+			ClientHitFeedback(Health <= 0.f ? 1.f : 0.4f);
+		}
+	}
 
 	if (Health <= 0.f)
 	{
@@ -1026,12 +1072,13 @@ void ABoatPawn::ClientImpulse_Implementation(FVector Impulse)
 	}
 }
 
-void ABoatPawn::ClientHitFeedback_Implementation()
+void ABoatPawn::ClientHitFeedback_Implementation(float Strength)
 {
 	const UWorld* World = GetWorld();
 	LastHitWallClock = World ? static_cast<float>(World->GetTimeSeconds()) : 0.f;
-	CameraShake = FMath::Max(CameraShake, 0.85f);
-	Rumble(0.9f, 0.5f);
+	Strength = FMath::Clamp(Strength, 0.f, 1.f);
+	CameraShake = FMath::Max(CameraShake, 0.85f * Strength);
+	Rumble(0.9f * Strength, 0.2f + 0.3f * Strength);
 }
 
 float ABoatPawn::GetTimeSinceHit() const
@@ -1051,6 +1098,8 @@ void ABoatPawn::Revive(float InvulnerableSeconds)
 	Health = MaxHealth;
 	bWrecked = false;
 	Boost = FMath::Max(Boost, 0.3f);
+	GunHeat = 0.f;
+	bGunJammed = false;
 
 	const UWorld* World = GetWorld();
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
@@ -1082,13 +1131,65 @@ void ABoatPawn::RequestSpecial(int32 Weapon)
 	}
 	switch (Weapon)
 	{
-	case 0: ServerFireMissile_Implementation(); break;
+	case 0: FireMissile(nullptr, true); break;
 	case 1: ServerDropFlares_Implementation(); break;
 	default: ServerThrowGrenade_Implementation(); break;
 	}
 }
 
-void ABoatPawn::ServerFireMissile_Implementation()
+void ABoatPawn::UpdateMissileLock(float DeltaSeconds, bool bCycle)
+{
+	if (MissileAmmo <= 0)
+	{
+		LockTarget = nullptr;
+		LockProgress = 0.f;
+		return;
+	}
+	// The boats the sights could hold, straightest ahead first.
+	const FVector Origin = GetRaceLocation();
+	const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+	TArray<TPair<float, ABoatPawn*>> Ahead;
+	for (TActorIterator<ABoatPawn> It(GetWorld()); It; ++It)
+	{
+		if (ABoatMissile::CanLock(this, *It))
+		{
+			Ahead.Emplace(-static_cast<float>(FVector::DotProduct((It->GetRaceLocation() - Origin).GetSafeNormal2D(), Forward)), *It);
+		}
+	}
+	Ahead.Sort([](const TPair<float, ABoatPawn*>& A, const TPair<float, ABoatPawn*>& B) { return A.Key < B.Key; });
+
+	// Stay on the boat already in the sights for as long as it can be held,
+	// so two boats close together do not make the lock flicker between them.
+	ABoatPawn* Held = LockTarget.Get();
+	const int32 HeldIndex = Ahead.IndexOfByPredicate([Held](const TPair<float, ABoatPawn*>& Entry) { return Entry.Value == Held; });
+	ABoatPawn* Wanted = nullptr;
+	if (Ahead.Num() > 0)
+	{
+		Wanted = HeldIndex == INDEX_NONE ? Ahead[0].Value : Ahead[(HeldIndex + (bCycle ? 1 : 0)) % Ahead.Num()].Value;
+	}
+	if (Wanted != Held)
+	{
+		LockTarget = Wanted;
+		LockProgress = 0.f;
+	}
+	if (Wanted == nullptr)
+	{
+		return;
+	}
+	const bool bWasLocked = LockProgress >= 1.f;
+	LockProgress = FMath::Min(LockProgress + DeltaSeconds / FMath::Max(GetDefault<ABoatMissile>()->LockSeconds, 0.1f), 1.f);
+	if (LockProgress >= 1.f && !bWasLocked)
+	{
+		BoatAudio::Play2D(this, EBoatSound::MissileLock, 0.45f, 1.5f); // the tone that says "fire"
+	}
+}
+
+void ABoatPawn::ServerFireMissile_Implementation(ABoatPawn* Wanted)
+{
+	FireMissile(Wanted, false);
+}
+
+void ABoatPawn::FireMissile(ABoatPawn* Wanted, bool bPickNearest)
 {
 	UWorld* World = GetWorld();
 	const ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr;
@@ -1108,7 +1209,7 @@ void ABoatPawn::ServerFireMissile_Implementation()
 	if (ABoatMissile* Missile = World->SpawnActor<ABoatMissile>(ABoatMissile::StaticClass(), Start,
 		FRotator(4.f, GetActorRotation().Yaw, 0.f), Params))
 	{
-		Missile->Launch(this);
+		Missile->Launch(this, Wanted, bPickNearest);
 	}
 }
 
@@ -1149,6 +1250,169 @@ void ABoatPawn::ServerThrowGrenade_Implementation()
 	{
 		Grenade->Throw(this);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The deck gun
+// ---------------------------------------------------------------------------
+void ABoatPawn::ServerSetGun_Implementation(bool bWant)
+{
+	bGunWanted = bWant;
+	GunDriverAccuracy = 1.f; // a person's rounds go where the boat points
+	const ABoatRacePlayerState* Racer = GetPlayerState<ABoatRacePlayerState>();
+	UE_LOG(LogBoatRace, Log, TEXT("Deck gun trigger %s (slot %d)"), bWant ? TEXT("held") : TEXT("released"), Racer ? Racer->SlotIndex + 1 : 0);
+}
+
+FVector ABoatPawn::GetGunMuzzle() const
+{
+	return VisualRoot->GetComponentTransform().TransformPosition(GunMuzzleLocal);
+}
+
+ABoatPawn* ABoatPawn::FindGunTarget() const
+{
+	const FVector Origin = GetRaceLocation();
+	const FVector2D Forward = FVector2D(GetActorForwardVector()).GetSafeNormal();
+	ABoatPawn* Best = nullptr;
+	float BestDistance = GunRange;
+	for (TActorIterator<ABoatPawn> It(GetWorld()); It; ++It)
+	{
+		ABoatPawn* Other = *It;
+		if (Other == this || Other->IsWrecked())
+		{
+			continue;
+		}
+		const FVector Mark = Other->GetRaceLocation();
+		const FVector2D Offset(Mark.X - Origin.X, Mark.Y - Origin.Y);
+		const float Distance = static_cast<float>(Offset.Size());
+		if (Distance < 1.f || Distance >= BestDistance)
+		{
+			continue;
+		}
+		// The assist, plus half a hull: a boat close alongside fills more of
+		// the view than one far ahead.
+		const float Off = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+			static_cast<float>(FVector2D::DotProduct(Offset / Distance, Forward)), -1.f, 1.f)));
+		if (Off > GunAimAssistDegrees + FMath::RadiansToDegrees(FMath::Atan2(160.f, Distance)))
+		{
+			continue;
+		}
+		if (BoatCombat::HasClearShot(this, Other))
+		{
+			Best = Other;
+			BestDistance = Distance;
+		}
+	}
+	return Best;
+}
+
+void ABoatPawn::UpdateGun(float DeltaSeconds)
+{
+	const bool bFire = bGunWanted && !bGunJammed && CanDrive();
+	if (bFire)
+	{
+		GunHeat = FMath::Min(GunHeat + DeltaSeconds / FMath::Max(GunOverheatSeconds, 0.5f), 1.f);
+		bGunJammed = GunHeat >= 1.f;
+		// By the clock, not by the frame, so a slow host fires no slower and
+		// tapping the trigger fires no faster.
+		const float Now = GetWorld() ? static_cast<float>(GetWorld()->GetTimeSeconds()) : 0.f;
+		const float Interval = 1.f / FMath::Clamp(GunRoundsPerSecond, 1.f, 30.f);
+		while (Now >= NextGunRound)
+		{
+			NextGunRound = FMath::Max(NextGunRound, Now - DeltaSeconds) + Interval;
+			FireGunRound();
+		}
+	}
+	else
+	{
+		GunHeat = FMath::Max(GunHeat - DeltaSeconds / FMath::Max(GunCoolSeconds, 0.5f), 0.f);
+		// Jammed until it is well on the way to cold, so overheating costs something.
+		bGunJammed = bGunJammed && GunHeat > 0.4f;
+	}
+	bGunFiring = bFire;
+	GunHeatNet = static_cast<uint8>(FMath::RoundToInt(GunHeat * 255.f));
+}
+
+void ABoatPawn::FireGunRound()
+{
+	ABoatPawn* Mark = FindGunTarget();
+	if (Mark == nullptr)
+	{
+		return;
+	}
+	const float Distance = static_cast<float>(FVector::Dist2D(Mark->GetRaceLocation(), GetRaceLocation()));
+	const float Chance = GunAccuracy * GunDriverAccuracy * FMath::Lerp(1.f, 0.5f, FMath::Clamp(Distance / FMath::Max(GunRange, 1.f), 0.f, 1.f));
+	if (FMath::FRand() > Chance)
+	{
+		return;
+	}
+	ABoatRacePlayerState* Me = GetPlayerState<ABoatRacePlayerState>();
+	if (Mark->ApplyDamage(GunDamage, Me, true))
+	{
+		// Shot to pieces: it goes up like anything else that is wrecked. The
+		// blast is for show and for the shove; the rounds did the damage.
+		UWorld* World = GetWorld();
+		BoatBlast::Detonate(World, Mark->GetRaceLocation() + FVector(0.f, 0.f, 80.f), 750.f, 0.f, 600000.f, this);
+		if (ABoatRaceGameState* RaceState = World ? World->GetGameState<ABoatRaceGameState>() : nullptr)
+		{
+			const ABoatRacePlayerState* Victim = Mark->GetPlayerState<ABoatRacePlayerState>();
+			RaceState->ReportWreck(Victim != nullptr ? Victim->GetPlayerName() : FString(TEXT("A boat")),
+				Me != nullptr ? Me->GetPlayerName() : FString());
+		}
+	}
+}
+
+void ABoatPawn::UpdateGunEffects(float DeltaSeconds)
+{
+	if (!GunEffects.IsReady())
+	{
+		return;
+	}
+	const FVector Muzzle = GetGunMuzzle();
+	const FVector Forward = GetActorForwardVector();
+	if (bGunFiring && !bWrecked)
+	{
+		GunEffectClock += DeltaSeconds * FMath::Clamp(GunRoundsPerSecond, 1.f, 30.f);
+		while (GunEffectClock >= 1.f)
+		{
+			GunEffectClock -= 1.f;
+			// Drawn to match what the server is deciding, not copied from it:
+			// most rounds at a boat in the sights strike it, the rest and all
+			// the unaimed ones walk across the water.
+			const ABoatPawn* Mark = FindGunTarget();
+			const bool bHull = Mark != nullptr && FMath::FRand() < 0.7f;
+			FVector End;
+			if (bHull)
+			{
+				End = Mark->GetActorLocation() + Mark->GetActorForwardVector() * FMath::FRandRange(-250.f, 250.f)
+					+ Mark->GetActorRightVector() * FMath::FRandRange(-80.f, 80.f) + FVector(0.f, 0.f, FMath::FRandRange(0.f, 90.f));
+			}
+			else
+			{
+				const FVector Flat = FVector(Forward.X, Forward.Y, 0.0).GetSafeNormal();
+				const FVector Aim = Flat.RotateAngleAxis(FMath::FRandRange(-2.5f, 2.5f), FVector::UpVector);
+				const float Reach = Mark != nullptr
+					? static_cast<float>(FVector::Dist2D(Mark->GetActorLocation(), Muzzle)) * FMath::FRandRange(0.85f, 1.25f)
+					: GunRange * FMath::FRandRange(0.5f, 1.f);
+				End = Muzzle + Aim * Reach;
+				End.Z = OceanWaves::GetHeight(FVector2D(End.X, End.Y), GetWaveTime());
+			}
+			GunEffects.Fire(Muzzle, End, bHull);
+			if (bHull && (++GunRoundsDrawn % 2) == 0)
+			{
+				BoatAudio::PlayAt(this, EBoatSound::GunHit, End, 0.55f, FMath::FRandRange(0.85f, 1.25f));
+			}
+			if (IsLocallyControlled())
+			{
+				CameraShake = FMath::Max(CameraShake, 0.16f);
+				Rumble(0.3f, 0.08f);
+			}
+		}
+	}
+	else
+	{
+		GunEffectClock = 1.f; // the first round of the next burst shows at once
+	}
+	GunEffects.Update(DeltaSeconds, Muzzle, Forward);
 }
 
 void ABoatPawn::GrantShield(float Seconds)
@@ -1382,6 +1646,7 @@ void ABoatPawn::UpdateLoadout()
 	const FBoatClass& Class = BoatGarage::GetBoat(Wanted.Boat);
 	if (bNewBoat && !BoatModel.Equals(TEXT("Higgsfield"), ESearchCase::IgnoreCase))
 	{
+		GunMuzzleModel = FVector2D(Class.GunX, Class.GunZ);
 		TryLoadCustomMesh(Class.Model, Class.LengthCm);
 	}
 	ApplyStats(BoatGarage::GetStats(Wanted));
@@ -1434,6 +1699,7 @@ void ABoatPawn::TryLoadCustomMesh(const TCHAR* ModelName, float LengthCm)
 	{
 		Model = BoatArt::Model(TEXT("RaceBoat")); // a class whose model is not imported yet
 		LengthCm = 770.f;
+		GunMuzzleModel = FVector2D(BoatGarage::GetBoat(0).GunX, BoatGarage::GetBoat(0).GunZ);
 	}
 	const bool bBlenderBoat = Model != nullptr;
 	if (Model == nullptr)
@@ -1479,6 +1745,14 @@ void ABoatPawn::TryLoadCustomMesh(const TCHAR* ModelName, float LengthCm)
 	CustomMesh->SetRelativeRotation(Rotation);
 	CustomMesh->SetRelativeLocation(FVector(Centering.X, Centering.Y, static_cast<double>(OffsetZ)));
 	CustomMesh->SetVisibility(true);
+	if (bBlenderBoat)
+	{
+		// The Blender boats import in centimetres with the bow along +X, or
+		// along -X when the importer turned them, which the yaw above undoes.
+		const double Bow = (SizeX >= SizeY && Bounds.Origin.X > 0.0) ? -1.0 : 1.0;
+		const FVector InModel(Bow * GunMuzzleModel.X * 100.0, 0.0, GunMuzzleModel.Y * 100.0);
+		GunMuzzleLocal = CustomMesh->GetRelativeLocation() + Rotation.RotateVector(InModel * static_cast<double>(Scale));
+	}
 
 	HullMesh->SetVisibility(false);
 	BowMesh->SetVisibility(false);
@@ -1708,6 +1982,7 @@ void ABoatPawn::BuildEffects()
 	}
 
 	Wake.Init(this);
+	GunEffects.Init(this, Hull);
 
 	// Nitrous flames: one off the back of each outboard, pointing aft.
 	for (const float Side : { 1.f, -1.f })
@@ -2103,6 +2378,22 @@ void ABoatPawn::UpdateAudio(float DeltaSeconds)
 	if (NitroAudio != nullptr)
 	{
 		NitroAudio->SetVolumeMultiplier(bBoostSound && !bWrecked ? 0.9f * Audio->EffectsVolume : 0.001f);
+	}
+	// The gun's rattle: a loop of shots at ten a second, sped up or slowed to
+	// the configured rate of fire.
+	if (GunAudio == nullptr)
+	{
+		GunAudio = Audio->MakeLoop(Hull, EBoatSound::GunFire, true);
+		if (GunAudio != nullptr)
+		{
+			GunAudio->SetVolumeMultiplier(0.001f);
+			GunAudio->Play();
+		}
+	}
+	if (GunAudio != nullptr)
+	{
+		GunAudio->SetVolumeMultiplier(bGunFiring && !bWrecked ? (IsLocallyControlled() ? 0.8f : 1.f) * Audio->EffectsVolume : 0.001f);
+		GunAudio->SetPitchMultiplier(FMath::Clamp(GunRoundsPerSecond, 1.f, 30.f) / 10.f);
 	}
 	const float Loudness = (bWrecked ? 0.f : 0.3f + 0.55f * FMath::Abs(Throttle) + 0.25f * SpeedFraction) * (IsLocallyControlled() ? 0.75f : 1.f);
 	EngineAudio->SetVolumeMultiplier(FMath::Max(Loudness * Audio->EffectsVolume, 0.001f));

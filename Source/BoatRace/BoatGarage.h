@@ -49,6 +49,10 @@ struct FBoatClass
 	float Turn;
 	float Armour;
 	int32 Price;
+	/** The deck gun's muzzle in the model, metres forward of the origin and
+	 *  above the waterline (deck_gun in Scripts/make_boats.py puts it there). */
+	float GunX;
+	float GunZ;
 };
 
 /** The multipliers a loadout puts on the boat's configured handling. */

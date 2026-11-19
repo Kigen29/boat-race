@@ -87,10 +87,10 @@ void UBoatPrefs::ApplyGraphics() const
 		FString::Printf(TEXT("r.AntiAliasingMethod %d"), AntiAliasing),
 		TEXT("r.TSR.History.ScreenPercentage 100"),
 		TEXT("r.TemporalAA.Upsampling 1"),
-		TEXT("r.MaxAnisotropy 8"),
+		TEXT("r.MaxAnisotropy 16"),
 		TEXT("r.DefaultFeature.MotionBlur 0"),
 		TEXT("r.MotionBlurQuality 0"),
-		TEXT("r.Tonemapper.Sharpen 0.35"),
+		TEXT("r.Tonemapper.Sharpen 0.6"),
 		TEXT("r.SceneColorFringeQuality 0"),
 		TEXT("r.Tonemapper.GrainQuantization 0"),
 	};
@@ -141,9 +141,9 @@ bool UBoatPrefs::OfferLap(float Seconds)
 	{
 		return false;
 	}
-	if (BoatTrack::IsReversed())
+	if (BoatTrack::GetCircuit() != 0 || BoatTrack::IsReversed())
 	{
-		BestRace.Add(TEXT("RLap"), Seconds);
+		BestRace.Add(BoatTrack::RecordPrefix() + TEXT("Lap"), Seconds);
 	}
 	else
 	{
@@ -155,17 +155,17 @@ bool UBoatPrefs::OfferLap(float Seconds)
 
 float UBoatPrefs::GetBestLap() const
 {
-	if (!BoatTrack::IsReversed())
+	if (BoatTrack::GetCircuit() == 0 && !BoatTrack::IsReversed())
 	{
 		return BestLap;
 	}
-	const float* Best = BestRace.Find(TEXT("RLap"));
+	const float* Best = BestRace.Find(BoatTrack::RecordPrefix() + TEXT("Lap"));
 	return Best ? *Best : 0.f;
 }
 
 bool UBoatPrefs::OfferRace(int32 Laps, float Seconds)
 {
-	const FString Key = (BoatTrack::IsReversed() ? TEXT("R") : TEXT("")) + FString::FromInt(Laps);
+	const FString Key = BoatTrack::RecordPrefix() + FString::FromInt(Laps);
 	const float* Best = BestRace.Find(Key);
 	if (Seconds <= 0.f || (Best != nullptr && Seconds >= *Best))
 	{
@@ -178,7 +178,7 @@ bool UBoatPrefs::OfferRace(int32 Laps, float Seconds)
 
 float UBoatPrefs::GetBestRace(int32 Laps) const
 {
-	const float* Best = BestRace.Find((BoatTrack::IsReversed() ? TEXT("R") : TEXT("")) + FString::FromInt(Laps));
+	const float* Best = BestRace.Find(BoatTrack::RecordPrefix() + FString::FromInt(Laps));
 	return Best ? *Best : 0.f;
 }
 
@@ -317,6 +317,7 @@ TArray<UBoatPrefs::FBoardRow> UBoatPrefs::GetBoard() const
 		Row.Seconds = FCString::Atof(*Parts[5]);
 		Row.bReverse = Parts[6] == TEXT("R");
 		Row.Date = Parts[7];
+		Row.CircuitIndex = Parts.Num() > 8 ? FMath::Clamp(FCString::Atoi(*Parts[8]), 0, BoatTrack::NumCircuits() - 1) : 0;
 	}
 	Rows.StableSort([](const FBoardRow& A, const FBoardRow& B) { return A.Score > B.Score; });
 	return Rows;
@@ -334,8 +335,8 @@ int32 UBoatPrefs::RecordRace(int32 Score, const FString& Name, int32 Boat, int32
 
 	// The name cannot carry the separator.
 	const FString CleanName = Name.Replace(TEXT("|"), TEXT("/")).Left(20);
-	const FString Line = FString::Printf(TEXT("%d|%s|%d|%d|%d|%.2f|%s|%s"), Score, *CleanName, Boat, Place, Racers, Seconds,
-		BoatTrack::IsReversed() ? TEXT("R") : TEXT("F"), *FDateTime::Now().ToString(TEXT("%d %b %Y")));
+	const FString Line = FString::Printf(TEXT("%d|%s|%d|%d|%d|%.2f|%s|%s|%d"), Score, *CleanName, Boat, Place, Racers, Seconds,
+		BoatTrack::IsReversed() ? TEXT("R") : TEXT("F"), *FDateTime::Now().ToString(TEXT("%d %b %Y")), BoatTrack::GetCircuit());
 	Leaderboard.Add(Line);
 
 	// Keep the best ten, and say where the new one landed.

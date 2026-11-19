@@ -190,6 +190,35 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 		RunPhotoTour(DeltaTime);
 		return;
 	}
+	if (FParse::Param(FCommandLine::Get(), TEXT("MenuTour")))
+	{
+		MenuTourClock += DeltaTime;
+		const int32 Step = FMath::FloorToInt(MenuTourClock / 4.f);
+		if (Step != MenuTourStep)
+		{
+			MenuTourStep = Step;
+			switch (Step)
+			{
+			case 0: OpenMenu(EMenuScreen::Main); break;
+			case 1: OpenMenu(EMenuScreen::Garage); break;
+			case 3: OpenMenu(EMenuScreen::Settings); break;
+			case 5: OpenMenu(EMenuScreen::Controls); break;
+			case 7: OpenMenu(EMenuScreen::Leaderboard); break;
+			case 9: ServerRaceOption(3, 1); OpenMenu(EMenuScreen::Main); break;
+			case 10: ServerRaceOption(4, 1); break;
+			case 11: ServerRaceOption(3, 1); break;
+			case 12: ConsoleCommand(TEXT("quit")); return;
+			default: GoBack(); break;
+			}
+		}
+		if (MenuTourClock - Step * 4.f > 2.f && MenuTourShot != Step)
+		{
+			MenuTourShot = Step;
+			FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("MenuTour_%02d"), Step), true, false);
+		}
+		SyncCursor();
+		return;
+	}
 
 	// The title screen is always a menu; leaving it (a race starts) closes it.
 	if (IsOnMainMenu())
@@ -217,14 +246,9 @@ void ABoatRacePlayerController::PlayerTick(float DeltaTime)
 	}
 	else if (bBackPressed)
 	{
-		if (MenuScreen == EMenuScreen::Settings || MenuScreen == EMenuScreen::Controls)
-		{
-			OpenMenu(MenuParent);
-		}
-		else if (MenuScreen == EMenuScreen::Pause)
-		{
-			OpenMenu(EMenuScreen::None);
-		}
+		GoBack();
+		SyncCursor();
+		return;
 	}
 
 	if (MenuScreen != EMenuScreen::None)
@@ -291,6 +315,23 @@ void ABoatRacePlayerController::OpenMenu(EMenuScreen Screen)
 		}
 	}
 	MenuScreen = Screen;
+}
+
+void ABoatRacePlayerController::GoBack()
+{
+	if (bTypingAddress)
+	{
+		bTypingAddress = false;
+		TypedAddress.Empty();
+	}
+	else if (MenuScreen == EMenuScreen::Pause)
+	{
+		OpenMenu(EMenuScreen::None);
+	}
+	else if (MenuScreen != EMenuScreen::Main && MenuScreen != EMenuScreen::None)
+	{
+		OpenMenu(MenuParent);
+	}
 }
 
 void ABoatRacePlayerController::SyncCursor()
@@ -371,7 +412,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 		Add(TEXT("Join by address"), EMenuAction::JoinAddress, TEXT("Type the host's IP address"));
 		Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
 		Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
-		Add(TEXT("Track"), EMenuAction::Track, TEXT("The bay clockwise or anticlockwise"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Bay circuit"), true);
+		Add(TEXT("Circuit"), EMenuAction::Track, BoatTrack::CircuitDescription(RaceState ? RaceState->CircuitIndex : 0), BoatTrack::CircuitName(RaceState ? RaceState->CircuitIndex : 0), true);
+		Add(TEXT("Direction"), EMenuAction::Direction, TEXT("Every circuit can be raced in both directions"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Forward"), true);
 		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 		Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		Add(TEXT("Settings"), EMenuAction::Settings, TEXT("Camera, steering, graphics, sound"));
@@ -387,7 +429,8 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			Add(TEXT("Start race"), EMenuAction::StartRace, TEXT("Empty seats are filled by rivals"));
 			Add(TEXT("Weather"), EMenuAction::Weather, TEXT("Left / right to change"), WeatherName, true);
 			Add(TEXT("Mode"), EMenuAction::Mode, TEXT("Elimination: last place is out every lap"), RaceState && RaceState->bElimination ? TEXT("Elimination") : TEXT("Race"), true);
-			Add(TEXT("Track"), EMenuAction::Track, TEXT("The bay clockwise or anticlockwise"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Bay circuit"), true);
+			Add(TEXT("Circuit"), EMenuAction::Track, BoatTrack::CircuitDescription(RaceState ? RaceState->CircuitIndex : 0), BoatTrack::CircuitName(RaceState ? RaceState->CircuitIndex : 0), true);
+		Add(TEXT("Direction"), EMenuAction::Direction, TEXT("Every circuit can be raced in both directions"), RaceState && RaceState->bReverse ? TEXT("Reverse") : TEXT("Forward"), true);
 		Add(TEXT("Laps"), EMenuAction::Laps, TEXT("Left / right to change"), FString::FromInt(RaceState ? RaceState->TotalLaps : 2), true);
 			Add(TEXT("Rivals"), EMenuAction::Rivals, TEXT("Computer boats fill the empty seats"), RivalName, true);
 		}
@@ -471,7 +514,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			const int32 Seconds = FMath::FloorToInt(Row.Seconds);
 			Add(FString::Printf(TEXT("%2d.  %s   %s"), Index + 1, *Row.Name.Left(14), BoatGarage::GetBoat(Row.Boat).Name), EMenuAction::None,
 				FString(), FString::Printf(TEXT("%s of %d   %d:%02d   %s   %d pts"), Places[FMath::Clamp(Row.Place, 0, 4)], Row.Racers,
-					Seconds / 60, Seconds % 60, Row.bReverse ? TEXT("rev") : TEXT("bay"), Row.Score), false, false);
+					Seconds / 60, Seconds % 60, *FString::Printf(TEXT("%s%s"), BoatTrack::CircuitName(Row.CircuitIndex), Row.bReverse ? TEXT(" R") : TEXT("")), Row.Score), false, false);
 		}
 		if (Board.Num() == 0)
 		{
@@ -492,10 +535,12 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			{ TEXT("Throttle / reverse"), TEXT("W / S    RT / LT") },
 			{ TEXT("Steer"), TEXT("A / D    Left stick") },
 			{ TEXT("Boost"), TEXT("SHIFT    RB") },
-			{ TEXT("Camera view / look back"), TEXT("C / B    R3 / LB") },
+			{ TEXT("Camera view / look back"), TEXT("C / B    R3 / L3") },
+			{ TEXT("Machine gun (hold; watch the heat)"), TEXT("CTRL / X    LB") },
 			{ TEXT("Torpedo"), TEXT("SPACE / Left mouse    A") },
 			{ TEXT("Mine"), TEXT("Q / Right mouse    X") },
-			{ TEXT("Homing missile"), TEXT("E    B") },
+			{ TEXT("Homing missile (wait for the red lock)"), TEXT("E    B") },
+			{ TEXT("Lock on to another boat"), TEXT("T    D-pad right") },
 			{ TEXT("Flares (break a missile lock)"), TEXT("F    D-pad down") },
 			{ TEXT("Grenade (co-driver throws)"), TEXT("G    D-pad up") },
 			{ TEXT("Back to last gate"), TEXT("R    Y") },
@@ -687,7 +732,10 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		ServerRaceOption(2, 1);
 		break;
 	case EMenuAction::Track:
-		ServerRaceOption(3, 1);
+		ServerRaceOption(3, Step >= 0 ? 1 : -1);
+		break;
+	case EMenuAction::Direction:
+		ServerRaceOption(4, 1);
 		break;
 	case EMenuAction::Camera:
 		if (UBoatPrefs* Prefs = UBoatPrefs::Get(this)) { Prefs->CycleCamera(Step >= 0 ? 1 : -1); }
@@ -814,7 +862,7 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 		ConsoleCommand(TEXT("quit"));
 		break;
 	case EMenuAction::Back:
-		OpenMenu(MenuParent);
+		GoBack();
 		break;
 	default:
 		break;
@@ -849,9 +897,9 @@ void ABoatRacePlayerController::JoinFoundRaceOnKeyPress()
 
 void ABoatRacePlayerController::HandleAddressTyping()
 {
-	if (WasInputKeyJustPressed(EKeys::Escape))
+	if (WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right))
 	{
-		bTypingAddress = false;
+		GoBack();
 		return;
 	}
 	if (WasInputKeyJustPressed(EKeys::BackSpace))
@@ -886,7 +934,12 @@ void ABoatRacePlayerController::HostRace()
 	// Reload the (empty) map as a listen server. This machine now plays and
 	// accepts up to three other players on UDP port 7777.
 	UE_LOG(LogBoatRace, Log, TEXT("Hosting a race."));
-	UGameplayStatics::OpenLevel(this, FName(RaceMap), true, TEXT("listen"));
+	const ABoatRaceGameState* State = GetWorld()->GetGameState<ABoatRaceGameState>();
+	const FString Options = FString::Printf(TEXT("listen?Circuit=%d?WeatherIndex=%d?Laps=%d?Rivals=%d?Elimination=%d%s"),
+		State ? State->CircuitIndex : 0, State ? State->WeatherIndex : 0, State ? State->TotalLaps : 2,
+		State ? State->RivalLevel : 2, State && State->bElimination ? 1 : 0,
+		State && State->bReverse ? TEXT("?Reverse") : TEXT(""));
+	UGameplayStatics::OpenLevel(this, FName(RaceMap), true, Options);
 }
 
 void ABoatRacePlayerController::JoinRace(const FString& Address)
@@ -1013,6 +1066,11 @@ void ABoatRacePlayerController::ServerRequestTimeTrial_Implementation()
 
 float ABoatRacePlayerController::GetGhostLapTime() const
 {
+	if (GhostLayoutKey != BoatTrack::GetLayoutKey())
+	{
+		GhostLayoutKey = BoatTrack::GetLayoutKey();
+		const_cast<ABoatRacePlayerController*>(this)->BestGhost.Reset();
+	}
 	if (!BestGhost.IsValid())
 	{
 		TSharedPtr<FGhostLap> Loaded = MakeShared<FGhostLap>();
@@ -1125,7 +1183,7 @@ void ABoatRacePlayerController::ServerRaceOption_Implementation(int32 Option, in
 	UWorld* World = GetWorld();
 	if (ABoatRaceGameMode* RaceMode = World ? World->GetAuthGameMode<ABoatRaceGameMode>() : nullptr)
 	{
-		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 3), FMath::Clamp(Step, -1, 1));
+		RaceMode->RequestRaceOption(this, FMath::Clamp(Option, 0, 4), FMath::Clamp(Step, -1, 1));
 	}
 }
 
@@ -1206,6 +1264,10 @@ void ABoatRacePlayerController::RunPhotoTour(float DeltaTime)
 		BlastStep = TourStep;
 		BoatBlast::Detonate(World, Boat->GetActorLocation() + Boat->GetActorForwardVector() * 3500.f, 900.f, 0.f, 0.f, Boat);
 	}
+
+	// That last blast stop also has the deck gun firing, to show the tracers,
+	// the flash and the heat bar.
+	Boat->SetDriverGun(TourStep == Weathers + 2 && IntoStep > 2.8f);
 
 	// Shoot halfway through each step, once the boat has settled and moved off.
 	static int32 ShotStep = -1;
@@ -1403,6 +1465,11 @@ void ABoatRacePlayerController::UpdateGarage(float DeltaTime)
 		SendLoadout(Prefs->GetLoadout());
 	}
 
+	if (GarageLayoutKey != BoatTrack::GetLayoutKey())
+	{
+		GarageLayoutKey = BoatTrack::GetLayoutKey();
+		if (Showroom != nullptr) { Showroom->Destroy(); Showroom = nullptr; }
+	}
 	if (Showroom == nullptr)
 	{
 		FActorSpawnParameters Params;

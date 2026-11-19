@@ -62,6 +62,15 @@ namespace BoatTrack
 {
 	constexpr int32 MaxPlayers = 4;
 
+	void SetCircuit(int32 Index);
+	int32 GetCircuit();
+	int32 NumCircuits();
+	int32 GetLayoutKey();
+	const TCHAR* CircuitName(int32 Index);
+	const TCHAR* CircuitDescription(int32 Index);
+	/** Save key prefix; original bay keys stay compatible. */
+	FString RecordPrefix();
+
 	/** The second track: the same bay driven clockwise. Every machine must
 	 *  set the same value before building the bay (the server from the travel
 	 *  URL, clients from the replicated game state). */

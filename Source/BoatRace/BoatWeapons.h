@@ -9,6 +9,68 @@ class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class UStaticMeshComponent;
 
+class USceneComponent;
+
+namespace BoatCombat
+{
+	/** Cover blocks both assisted gunfire and missile acquisition. */
+	bool HasClearShot(const ABoatPawn* Shooter, const ABoatPawn* Target);
+}
+
+/**
+ * What the deck gun looks like when it fires: a muzzle flash, tracers down
+ * the range, spouts where rounds meet the sea and sparks where they meet a
+ * hull.
+ *
+ * Cosmetic only. Every machine draws its own from the boat's one replicated
+ * "firing" bit; which rounds actually hit is the server's business alone, so
+ * nothing here is sent. Plain C++ owned by the boat, like its wake: the boat
+ * keeps the components alive.
+ */
+class FDeckGunEffects
+{
+public:
+	/** Creates the pooled meshes on an actor. Call once, from BeginPlay. */
+	void Init(AActor* Owner, USceneComponent* AttachTo);
+	bool IsReady() const { return Flash != nullptr; }
+
+	/** One round on its way from Muzzle to End, which is a hull (sparks) or the sea. */
+	void Fire(const FVector& Muzzle, const FVector& End, bool bHull);
+
+	/** Call every frame, firing or not, so rounds already in the air land. */
+	void Update(float DeltaSeconds, const FVector& Muzzle, const FVector& Forward);
+
+private:
+	struct FTracer
+	{
+		FVector Start = FVector::ZeroVector;
+		FVector End = FVector::ZeroVector;
+		float Age = 0.f;
+		float Life = 0.f;
+		bool bHull = false;
+		bool bLive = false;
+	};
+	struct FStrike
+	{
+		FVector Location = FVector::ZeroVector;
+		float Age = 1.f;
+		bool bHull = false;
+		bool bLive = false;
+	};
+	void Strike(const FVector& Location, bool bHull);
+
+	TArray<FTracer> Tracers;
+	TArray<FStrike> Strikes;
+	TArray<TObjectPtr<UStaticMeshComponent>> TracerMeshes;
+	TArray<TObjectPtr<UStaticMeshComponent>> StrikeMeshes;
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> StrikeMaterials;
+	TObjectPtr<UStaticMeshComponent> Flash;
+	TObjectPtr<UPointLightComponent> FlashLight;
+	float FlashAge = 1.f;
+	int32 NextTracer = 0;
+	int32 NextStrike = 0;
+};
+
 /**
  * A homing missile. It locks on to the nearest boat ahead when fired, skims
  * the waves and turns after it; flares make it lose the lock and chase the
@@ -28,8 +90,17 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	/** Server only: who fired it, and lock on to a target ahead. */
-	void Launch(ABoatPawn* Shooter);
+	/**
+	 * Server only: who fired it and at whom. Wanted is the boat the shooter's
+	 * sights had locked; with none the missile flies straight, unless
+	 * bPickNearest (computer drivers), when it takes the nearest boat ahead.
+	 */
+	void Launch(ABoatPawn* Shooter, ABoatPawn* Wanted, bool bPickNearest);
+
+	/** Whether Shooter's missile sights can hold Other: afloat, in range and
+	 *  ahead. Slack loosens it a little, for the server checking a lock the
+	 *  owner's machine saw a moment ago. */
+	static bool CanLock(const ABoatPawn* Shooter, const ABoatPawn* Other, float Slack = 1.f);
 
 	/** The boat it is chasing, so that boat's HUD can warn of the lock. */
 	ABoatPawn* GetTarget() const { return Target; }
@@ -39,7 +110,11 @@ public:
 
 	/** Degrees per second it can turn. */
 	UPROPERTY(Config)
-	float TurnRate = 70.f;
+	float TurnRate = 85.f;
+
+	/** Seconds the sights must stay on a boat before the lock is good. */
+	UPROPERTY(Config)
+	float LockSeconds = 1.f;
 
 	UPROPERTY(Config)
 	float LockRange = 30000.f;

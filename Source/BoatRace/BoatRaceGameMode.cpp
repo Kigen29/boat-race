@@ -8,6 +8,7 @@
 #include "BoatRacePlayerState.h"
 #include "BoatRivalController.h"
 #include "BoatTrack.h"
+#include "Tests/BoatNetCombatTest.h"
 
 #include "Misc/CommandLine.h"
 #include "Engine/World.h"
@@ -63,17 +64,37 @@ int32 ABoatRaceGameMode::FindFreeSlot() const
 void ABoatRaceGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	if (FParse::Param(FCommandLine::Get(), TEXT("NetCombatTest")))
+	{
+		GetWorld()->SpawnActor<ABoatNetCombatTest>();
+	}
 
 	FString Choice = Weather;
 	FParse::Value(FCommandLine::Get(), TEXT("Weather="), Choice);
 	// Test hooks: -Laps=N, and -AutoRace=S starts a race S seconds in.
 	FParse::Value(FCommandLine::Get(), TEXT("Laps="), TotalLaps);
 	FParse::Value(FCommandLine::Get(), TEXT("AutoRace="), AutoRaceAfter);
+	if (const TCHAR* Option = GetWorld()->URL.GetOption(TEXT("Laps="), nullptr))
+	{
+		TotalLaps = FMath::Clamp(FCString::Atoi(Option), 1, 9);
+	}
 	if (ABoatRaceGameState* RaceState = GetGameState<ABoatRaceGameState>())
 	{
 		RaceState->SetWeather(RaceWeather::Parse(Choice));
-		RaceState->SetReverse(FParse::Param(FCommandLine::Get(), TEXT("Reverse")));
+		RaceState->SetReverse(FParse::Param(FCommandLine::Get(), TEXT("Reverse")) || GetWorld()->URL.HasOption(TEXT("Reverse")));
 		RaceState->TotalLaps = FMath::Clamp(TotalLaps, 1, 9);
+		if (const TCHAR* Option = GetWorld()->URL.GetOption(TEXT("WeatherIndex="), nullptr))
+		{
+			RaceState->SetWeather(RaceWeather::FromIndex(FCString::Atoi(Option)));
+		}
+		if (const TCHAR* Option = GetWorld()->URL.GetOption(TEXT("Rivals="), nullptr))
+		{
+			RaceState->RivalLevel = static_cast<uint8>(FMath::Clamp(FCString::Atoi(Option), 0, 3));
+		}
+		if (const TCHAR* Option = GetWorld()->URL.GetOption(TEXT("Elimination="), nullptr))
+		{
+			RaceState->bElimination = FCString::Atoi(Option) != 0;
+		}
 		UE_LOG(LogBoatRace, Log, TEXT("Weather: %s"), RaceWeather::Get(RaceState->GetWeather()).Name);
 	}
 }
@@ -111,9 +132,16 @@ void ABoatRaceGameMode::RequestRaceOption(APlayerController* Requester, int32 Op
 	{
 		RaceState->bElimination = !RaceState->bElimination;
 	}
-	else if (Option == 3)
+	else if (Option == 3 || Option == 4)
 	{
-		RaceState->SetReverse(!RaceState->bReverse);
+		if (Option == 3)
+		{
+			RaceState->SetCircuit((RaceState->CircuitIndex + Step + BoatTrack::NumCircuits()) % BoatTrack::NumCircuits());
+		}
+		else
+		{
+			RaceState->SetReverse(!RaceState->bReverse);
+		}
 		// The grid is on the other side of the start line now.
 		for (APlayerState* Player : RaceState->PlayerArray)
 		{

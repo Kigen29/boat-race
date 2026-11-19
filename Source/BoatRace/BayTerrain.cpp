@@ -14,7 +14,7 @@
 
 namespace
 {
-	const int32 BayLinePoints = UE_ARRAY_COUNT(BoatTrackData::RacingLine);
+	const int32 BayLinePoints = UE_ARRAY_COUNT(BoatTrackData::Current().RacingLine);
 	/** Middle of the circuit, metres: the land is laid out around it. */
 	const double BayCentreX = 30.0;
 	const double BayCentreY = -75.0;
@@ -60,8 +60,8 @@ namespace
 		for (int32 Index = 0; Index < BayLinePoints; ++Index)
 		{
 			const int32 Next = (Index + 1) % BayLinePoints;
-			const double AX = BoatTrackData::RacingLine[Index][0], AY = BoatTrackData::RacingLine[Index][1];
-			const double BX = BoatTrackData::RacingLine[Next][0], BY = BoatTrackData::RacingLine[Next][1];
+			const double AX = BoatTrackData::Current().RacingLine[Index][0], AY = BoatTrackData::Current().RacingLine[Index][1];
+			const double BX = BoatTrackData::Current().RacingLine[Next][0], BY = BoatTrackData::Current().RacingLine[Next][1];
 			const double DX = BX - AX, DY = BY - AY;
 			const double T = FMath::Clamp(((X - AX) * DX + (Y - AY) * DY) / (DX * DX + DY * DY), 0.0, 1.0);
 			const double QX = AX + DX * T, QY = AY + DY * T;
@@ -69,18 +69,18 @@ namespace
 			// Counter-clockwise circuit: the left of the direction of travel is the inside.
 			const bool bInside = (DX * (Y - AY) - DY * (X - AX)) > 0.0;
 			const int32 Side = bInside ? 0 : 1;
-			const double Reach = BoatTrackData::Shore[Index][Side] * (1.0 - T) + BoatTrackData::Shore[Next][Side] * T;
+			const double Reach = BoatTrackData::Current().Shore[Index][Side] * (1.0 - T) + BoatTrackData::Current().Shore[Next][Side] * T;
 			const double Value = Reach - Distance;
 			if (Value > Best)
 			{
 				Best = Value;
-				OutCliff = BoatTrackData::Shore[Index][2 + Side] * (1.0 - T) + BoatTrackData::Shore[Next][2 + Side] * T;
+				OutCliff = BoatTrackData::Current().Shore[Index][2 + Side] * (1.0 - T) + BoatTrackData::Current().Shore[Next][2 + Side] * T;
 			}
 		}
 
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Barges); ++Index)
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(BoatTrackData::Current().Barges); ++Index)
 		{
-			const double* Barge = BoatTrackData::Barges[Index];
+			const double* Barge = BoatTrackData::Current().Barges[Index];
 			double DX = Barge[2] - Barge[0], DY = Barge[3] - Barge[1];
 			const double Length = FMath::Sqrt(DX * DX + DY * DY);
 			DX /= Length;
@@ -114,6 +114,22 @@ namespace
 		const double N1 = Noise(X / 180.0, Y / 180.0, 11);
 		const double N2 = Noise(X / 55.0, Y / 55.0, 23);
 		const double N3 = Noise(X / 420.0, Y / 420.0, 37);
+		if (BoatTrack::GetCircuit() == 1)
+		{
+			// A working port sits on reclaimed, mostly level ground.
+			return 5.5 * SmoothStep(0.0, 12.0, Up) + 2.0 * (0.5 + 0.5 * N1)
+				* SmoothStep(20.0, 80.0, Up) + 16.0 * SmoothStep(1100.0, 2100.0,
+				FMath::Sqrt(X * X + Y * Y)) - 0.8;
+		}
+		if (BoatTrack::GetCircuit() == 2)
+		{
+			// Sandstone walls rise immediately outside the navigable channel;
+			// broad benches above them make a mesa silhouette, not green hills.
+			const double Wall = (65.0 + 22.0 * (0.5 + 0.5 * N1)) * SmoothStep(0.0, 23.0, Up);
+			const double Bench = 20.0 * SmoothStep(38.0, 50.0, Up) + 22.0 * SmoothStep(110.0, 130.0, Up);
+			const double Rim = 85.0 * SmoothStep(550.0, 1700.0, FMath::Sqrt(X * X + Y * Y));
+			return Wall + Bench + Rim + 3.0 * N2 * SmoothStep(25.0, 70.0, Up) - 0.8;
+		}
 
 		const double Beach = 3.0 * SmoothStep(0.0, 30.0, Up);
 		const double CliffTop = (18.0 + 16.0 * (0.5 + 0.5 * N2)) * SmoothStep(0.0, 9.0, Up);
@@ -126,7 +142,7 @@ namespace
 		const double Mountains = 240.0 * SmoothStep(950.0, 1900.0, R) * (0.55 + 0.45 * (0.5 + 0.5 * N3))
 			+ 60.0 * SmoothStep(1500.0, 2300.0, R) * N1;
 
-		return Shore + Hills + Mountains - 0.8;
+		return Shore * 0.4 + Hills * 0.35 + Mountains * 0.18 - 0.8;
 	}
 
 	FLinearColor SRGB(uint8 R, uint8 G, uint8 B)
@@ -137,6 +153,21 @@ namespace
 	/** Ground colour: sand, grass, straw, rock and snow, by height and steepness. */
 	FLinearColor GroundColour(double X, double Y, double H, double Slope, float Snow)
 	{
+		const int32 Circuit = BoatTrack::GetCircuit();
+		if (Circuit == 1)
+		{
+			const float Variation = static_cast<float>(0.5 + 0.5 * Noise(X / 24.0, Y / 24.0, 83));
+			FLinearColor Colour = H < 1.8 ? SRGB(94, 106, 108)
+				: FMath::Lerp(SRGB(118, 130, 132), SRGB(151, 157, 150), Variation);
+			return FMath::Lerp(Colour, SRGB(223, 231, 232), Snow * 0.8f);
+		}
+		if (Circuit == 2)
+		{
+			const float Stratum = static_cast<float>(0.5 + 0.5 * FMath::Sin(H * 0.62 + Noise(X / 180.0, Y / 180.0, 89) * 1.2));
+			FLinearColor Colour = FMath::Lerp(SRGB(155, 74, 45), SRGB(204, 132, 83), Stratum);
+			if (H < 2.0) { Colour = SRGB(225, 183, 113); }
+			return FMath::Lerp(Colour, SRGB(230, 221, 208), Snow * FMath::Clamp(1.f - static_cast<float>(Slope), 0.f, 1.f));
+		}
 		if (H < -0.2)
 		{
 			const double Depth = FMath::Clamp(-H / 8.0, 0.0, 1.0);
@@ -145,16 +176,17 @@ namespace
 
 		const float Patch = static_cast<float>(0.5 + 0.5 * Noise(X / 40.0, Y / 40.0, 51));
 		const float Dry = static_cast<float>(SmoothStep(0.35, 0.8, 0.5 + 0.5 * Noise(X / 110.0, Y / 110.0, 53)));
-		FLinearColor Grass = FMath::Lerp(SRGB(92, 168, 56), SRGB(128, 190, 70), Patch);
-		Grass = FMath::Lerp(Grass, SRGB(214, 190, 112), Dry * 0.65f); // straw, like the video's long grass
-		const FLinearColor Sand = FMath::Lerp(SRGB(238, 218, 160), SRGB(226, 200, 140), Patch);
-		const FLinearColor Rock = FMath::Lerp(SRGB(122, 114, 104), SRGB(150, 140, 126), Patch);
+		FLinearColor Grass = FMath::Lerp(SRGB(70, 168, 50), SRGB(120, 200, 62), Patch);
+		Grass = FMath::Lerp(Grass, SRGB(226, 198, 92), Dry * 0.35f); // a little straw, where the ground is dry
+		const FLinearColor Sand = FMath::Lerp(SRGB(244, 222, 158), SRGB(232, 202, 132), Patch);
+		// Red sandstone, not grey: it sets the cliffs against the blue water.
+		const FLinearColor Rock = FMath::Lerp(SRGB(164, 100, 70), SRGB(200, 140, 96), Patch);
 		const FLinearColor White = SRGB(236, 240, 248);
 
 		FLinearColor Colour = Grass;
-		if (H < 2.4 && Slope < 0.45)
+		if (H < 4.0 && Slope < 0.65)
 		{
-			Colour = FMath::Lerp(Sand, Grass, static_cast<float>(SmoothStep(1.4, 2.4, H)));
+			Colour = FMath::Lerp(Sand, Grass, static_cast<float>(SmoothStep(2.5, 4.0, H)));
 		}
 		const float Steep = static_cast<float>(SmoothStep(0.55, 0.95, Slope));
 		Colour = FMath::Lerp(Colour, Rock, Steep);
@@ -373,6 +405,11 @@ UInstancedStaticMeshComponent* ABayTerrain::MakeInstances(UStaticMesh* Mesh, flo
 
 void ABayTerrain::ScatterPlants()
 {
+	const int32 Circuit = BoatTrack::GetCircuit();
+	if (Circuit == 1)
+	{
+		return; // Reclaimed quays have cargo and machinery instead of a forest.
+	}
 	struct FKind
 	{
 		const TCHAR* Name;
@@ -382,9 +419,8 @@ void ABayTerrain::ScatterPlants()
 	};
 	FKind Kinds[] =
 	{
-		{ TEXT("TreeRound"), 9.1f }, { TEXT("TreeTall"), 10.8f }, { TEXT("Pine"), 8.1f },
-		{ TEXT("Palm"), 8.3f }, { TEXT("Bush"), 1.7f }, { TEXT("RockA"), 1.6f },
-		{ TEXT("RockB"), 2.4f }, { TEXT("RockC"), 1.3f },
+		{ TEXT("Palm"), 8.3f }, { TEXT("Bush"), 1.7f },
+		{ TEXT("Cactus"), 6.4f }, { TEXT("CanyonBoulder"), 2.0f },
 	};
 	for (FKind& Kind : Kinds)
 	{
@@ -392,7 +428,7 @@ void ABayTerrain::ScatterPlants()
 		Kind.Instances = MakeInstances(Mesh, Kind.Height, Kind.Height > 3.f);
 		Kind.Scale = BoatArt::UnitScale(Mesh, Kind.Height);
 	}
-	enum { Round, Tall, Pine, Palm, Bush, RockA, RockB, RockC };
+	enum { Palm, Bush, Cactus, DesertRock };
 
 	// One candidate every 14 m inside the hills, jittered so it never looks planted.
 	const double Spacing = 14.0;
@@ -420,25 +456,15 @@ void ABayTerrain::ScatterPlants()
 			const double Density = FMath::Lerp(1.0, 0.35, SmoothStep(700.0, 1500.0, R));
 
 			int32 Kind = -1;
-			if (Slope > 0.7)
+			if (Circuit == 2)
 			{
-				Kind = (Roll < 0.18 * Density) ? RockA + (CX + CY) % 3 : -1;
+				Kind = Roll < 0.055 * Density && Slope < 0.5 ? Cactus : (Roll < 0.09 * Density ? DesertRock : -1);
 			}
-			else if (H < 6.0 && Cliff < 0.4 && Up < 60.0)
+			else if (Circuit == 0)
 			{
-				Kind = (Roll < 0.16) ? (Roll < 0.1 ? Palm : Bush) : -1;
-			}
-			else if (H < 160.0 && Roll < (0.12 + 0.55 * Forest) * Density)
-			{
-				const double Pick = Hash2(CX, CY, 109);
-				if (H > 70.0 || (H > 30.0 && Pick < 0.5))
-				{
-					Kind = Pine;
-				}
-				else
-				{
-					Kind = Pick < 0.42 ? Round : (Pick < 0.75 ? Tall : (Pick < 0.9 ? Bush : RockA + (CX % 3 + 3) % 3));
-				}
+				// Palms and low scrub keep this coast recognisably tropical.
+				Kind = Slope < 0.65 && H < 85.0 && Roll < 0.27 * Density
+					? (Roll < 0.20 * Density ? Palm : Bush) : -1;
 			}
 			if (Kind < 0 || Kinds[Kind].Instances == nullptr)
 			{
@@ -513,6 +539,54 @@ void ABayTerrain::PlaceBuildings()
 		return Centre + Out * (StartMetres + 260.0);
 	};
 
+	if (BoatTrack::GetCircuit() == 1)
+	{
+		for (int32 Index = 0; Index < Gates.Num(); ++Index)
+		{
+			const FBoatGate& Gate = Gates[Index];
+			for (double Side : { -1.0, 1.0 })
+			{
+				const FVector2D Out(Gate.Forward.Y * Side, -Gate.Forward.X * Side);
+				const FVector2D Bank = FindBank(Gate, Side, 1.2, 65.0);
+				const FVector2D Cargo = Bank + Out * 32.0;
+				if (BayTerrain::GetClearanceMetres(Cargo.X, Cargo.Y) > -18.f) { continue; }
+				PlaceModel(TEXT("ContainerStack"), 9.f, Ground(Cargo), YawOf(Gate.Forward), 1.3f);
+				if (Side > 0.0 || Index % 2 == 1)
+				{
+					const FVector2D Crane = Bank + Out * 10.0 + Gate.Forward * 40.0;
+					PlaceModel(TEXT("HarbourCrane"), 33.f, Ground(Crane), YawOf(-Out), 1.8f);
+					const FVector2D Works = Bank + Out * 85.0 - Gate.Forward * 20.0;
+					if (Side > 0.0 && Index % 2 == 0 && BayTerrain::GetClearanceMetres(Works.X, Works.Y) < -30.f)
+					{
+						PlaceModel(TEXT("PortWarehouse"), 28.f, Ground(Works), YawOf(Gate.Forward), 1.6f);
+					}
+				}
+			}
+		}
+		RepaintAll();
+		return;
+	}
+	if (BoatTrack::GetCircuit() == 2)
+	{
+		for (int32 Index = 0; Index < Gates.Num(); Index += 2)
+		{
+			const FBoatGate& Gate = Gates[Index];
+			const double Side = Index % 4 == 0 ? 1.0 : -1.0;
+			const FVector2D Out(Gate.Forward.Y * Side, -Gate.Forward.X * Side);
+			const FVector2D Mesa = FindBank(Gate, Side, 10.0, 80.0) + Out * 32.0;
+			if (BayTerrain::GetClearanceMetres(Mesa.X, Mesa.Y) < -20.f)
+			{
+				PlaceModel(TEXT("CanyonButte"), 6.5f, Ground(Mesa) - FVector(0, 0, 1000), Index * 23.f, 13.f + (Index % 3) * 3.f);
+			}
+		}
+		const FVector2D A(BoatTrackData::Current().RacingLine[8][0], BoatTrackData::Current().RacingLine[8][1]);
+		const FVector2D B(BoatTrackData::Current().RacingLine[9][0], BoatTrackData::Current().RacingLine[9][1]);
+		const FVector2D Mid = (A + B) * 0.5;
+		PlaceModel(TEXT("CanyonArch"), 111.f, FVector(Mid.X * 100.0, Mid.Y * 100.0, 0.f), YawOf(B - A));
+		RepaintAll();
+		return;
+	}
+
 	// --- Start / finish: grandstand, pier, tents and flags on the outside bank.
 	const FBoatGate& Start = Gates[0];
 	const FVector2D Outward(Start.Forward.Y, -Start.Forward.X);
@@ -544,7 +618,7 @@ void ABayTerrain::PlaceBuildings()
 		for (double Direction : { 1.0, -1.0 })
 		{
 			const int32 Side = Direction > 0 ? 1 : 0;
-			if (BoatTrackData::Shore[Index][2 + Side] > 0.35 || (Index + Side) % 3 != 0)
+			if (BoatTrackData::Current().Shore[Index][2 + Side] > 0.35 || (Index + Side) % 3 != 0)
 			{
 				continue;
 			}
@@ -566,8 +640,8 @@ void ABayTerrain::PlaceBuildings()
 	PlaceModel(TEXT("Lighthouse"), 24.f, Ground(LightSpot) - FVector(0, 0, 150), 0.f, 1.2f);
 
 	// --- The bridge over the narrows, square across the course.
-	const FVector2D NarrowA(BoatTrackData::RacingLine[8][0], BoatTrackData::RacingLine[8][1]);
-	const FVector2D NarrowB(BoatTrackData::RacingLine[9][0], BoatTrackData::RacingLine[9][1]);
+	const FVector2D NarrowA(BoatTrackData::Current().RacingLine[8][0], BoatTrackData::Current().RacingLine[8][1]);
+	const FVector2D NarrowB(BoatTrackData::Current().RacingLine[9][0], BoatTrackData::Current().RacingLine[9][1]);
 	const FVector2D Mid = (NarrowA + NarrowB) * 0.5;
 	PlaceModel(TEXT("Bridge"), 64.9f, FVector(Mid.X * 100.0, Mid.Y * 100.0, -600.0), YawOf(NarrowB - NarrowA), 1.f);
 

@@ -71,7 +71,7 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatTrack` + `BoatTrackData.h` | Circuit and scenery as data. `SetReversed` turns the circuit round (gates in the other order, ramps facing the other way); the game state replicates it and every machine rebuilds the bay. **The .h is generated — edit `Scripts/course_layout.py`, not the header** |
 | `BoatPawn` | 1200 kg rigid body: four buoyancy probes, hydrodynamics, engine, rudder, networking, weapons, damage |
 | `BoatProjectile` | Torpedoes, mines (dropped, and the drifting sea mines), explosions, ammunition crates |
-| `BoatWeapons` | Homing missiles (lock the boat ahead, chase flares), flare bursts, the copilot's grenades |
+| `BoatWeapons` | Homing missiles (the owner's sights lock a boat ahead over a second, `UpdateMissileLock` in `BoatPawn`, and the server checks the lock with `CanLock`; unlocked they fly straight; they chase flares), flare bursts, the copilot's grenades, and the deck gun's tracers, flash and strikes (`FDeckGunEffects`). The gun itself is in `BoatPawn`: hold CTRL, the server fires it and decides hits (`FindGunTarget`: fixed forward with an aim assist), heat instead of ammunition; only `bGunFiring` is replicated and each machine draws its own tracers. The gun is modelled on each boat by `deck_gun` in `make_boats.py`, and its muzzle is repeated in `BoatGarage.cpp` |
 | `RaceEnvironment` | Sky, light, weather (rain, snow, gale, clouds, lightning), pylons, rope lanes, sea stacks, ramps, whirlpools, barges, logs, start gantry and its lights |
 | `BoatRaceGameMode` | Server rules: four-player cap, grid, countdown, laps, wreck recovery, results |
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets. Text is the engine's Roboto through Slate's font cache (sharp at any size); a compass tape and a world-space waypoint over the next gate; the menu panels |
@@ -124,9 +124,24 @@ Screenshots land in `Saved/Screenshots/LinuxEditor/`. Two automated checks:
 ```bash
 Scripts/smoke_test.sh     # the photo tour; fails on a crash, missing shots or low fps
 Scripts/net_test.sh       # headless host + client; client must join and score gates
+bash Scripts/combat_test.sh      # isolated engine weapon/protection regression checks
+bash Scripts/net_combat_test.sh  # host/client damage, missile, flare and recovery agreement
+bash Scripts/frontend_test.sh   # submenu Back paths and all six circuit/direction layouts
+bash Scripts/menu_test.sh       # screenshots and live circuit/direction changes through RPCs
+bash Scripts/environment_test.sh # matching sunny gameplay images of all three environments
+Scripts/smoke_test.sh 25 -Circuit=2 # visual tour of Canyon Run; 0 bay, 1 harbour
+Scripts/net_test.sh 2           # host/client on Canyon Run, selected through the travel URL
 ```
 
+Circuit identity is also scenery: 0 is a low tropical coast, 1 an industrial
+port and 2 a sandstone canyon. `BayTerrain` changes land relief and vegetation;
+`RaceEnvironment` changes water/light and obstacle models. Do not make the
+courses visually identical by giving all of them the same forest and landmarks.
+`bash Scripts/build_environments.sh` rebuilds the nine themed models and imports
+them through the full editor, so the Nanite editor subsystem is available.
+
 `-Garage=N` opens the garage on boat N six seconds in (for screenshots).
+`-GunAlways` holds the deck gun's trigger down.
 Screenshots land in `Saved/Screenshots/LinuxEditor/`. The tour drives the
 player's boat itself; keys pressed in its window still count.
 

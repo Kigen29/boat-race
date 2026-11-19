@@ -27,7 +27,8 @@ namespace
 	{
 		// One ghost per direction: a lap of the reverse circuit is no guide to the other.
 		return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("BoatRace"),
-			BoatTrack::IsReversed() ? TEXT("GhostReverse.dat") : TEXT("Ghost.dat"));
+			BoatTrack::GetCircuit() == 0 ? FString(BoatTrack::IsReversed() ? TEXT("GhostReverse.dat") : TEXT("Ghost.dat"))
+			: FString::Printf(TEXT("Ghost_%s.dat"), *BoatTrack::RecordPrefix()));
 	}
 
 	const int32 GhostVersion = 1;
