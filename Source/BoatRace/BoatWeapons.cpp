@@ -216,8 +216,8 @@ void FDeckGunEffects::Update(float DeltaSeconds, const FVector& Muzzle, const FV
 			continue;
 		}
 		Hit.Age += DeltaSeconds;
-		const float Life = Hit.bHull ? 0.16f : 0.42f;
-		const float U = Hit.Age / Life;
+		const float HitLife = Hit.bHull ? 0.16f : 0.42f;
+		const float U = Hit.Age / HitLife;
 		if (U >= 1.f)
 		{
 			Hit.bLive = false;

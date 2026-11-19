@@ -8,7 +8,7 @@
 #include "BoatRacePlayerState.h"
 #include "BoatRivalController.h"
 #include "BoatTrack.h"
-#include "Tests/BoatNetCombatTest.h"
+#include "BoatNetCombatTest.h"
 
 #include "Misc/CommandLine.h"
 #include "Engine/World.h"

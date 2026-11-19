@@ -92,16 +92,16 @@ namespace
 		Sunset.WaterTint = FLinearColor(0.012f, 0.05f, 0.12f);
 		Sunset.Waves = 0.7f; Sunset.Cumulus = 0.7f; Sunset.CloudColor = WeatherSRGB(255, 190, 150);
 
-		FWeatherLook& Night = Looks[static_cast<int32>(ERaceWeather::Night)];
-		Night = Sunny;
-		Night.Name = TEXT("Night");
-		Night.FoamBrightness = 0.05f;
+		FWeatherLook& NightLook = Looks[static_cast<int32>(ERaceWeather::Night)];
+		NightLook = Sunny;
+		NightLook.Name = TEXT("Night");
+		NightLook.FoamBrightness = 0.05f;
 		// Moonlight: the sky atmosphere goes dark blue with a dim, cold light.
-		Night.SunPitch = -35.f; Night.SunYaw = 60.f; Night.SunIntensity = 0.35f; Night.SunColor = FLinearColor(0.55f, 0.65f, 1.f);
-		Night.SkyIntensity = 0.6f; Night.FogDensity = 0.01f; Night.FogColor = WeatherSRGB(20, 28, 48);
-		Night.WaterTint = FLinearColor(0.002f, 0.01f, 0.025f);
-		Night.Waves = 0.8f; Night.Cumulus = 0.f; Night.Overcast = 0.2f; Night.CloudColor = WeatherSRGB(30, 36, 52);
-		Night.bNight = true; Night.bGulls = false;
+		NightLook.SunPitch = -35.f; NightLook.SunYaw = 60.f; NightLook.SunIntensity = 0.35f; NightLook.SunColor = FLinearColor(0.55f, 0.65f, 1.f);
+		NightLook.SkyIntensity = 0.6f; NightLook.FogDensity = 0.01f; NightLook.FogColor = WeatherSRGB(20, 28, 48);
+		NightLook.WaterTint = FLinearColor(0.002f, 0.01f, 0.025f);
+		NightLook.Waves = 0.8f; NightLook.Cumulus = 0.f; NightLook.Overcast = 0.2f; NightLook.CloudColor = WeatherSRGB(30, 36, 52);
+		NightLook.bNight = true; NightLook.bGulls = false;
 		return Looks;
 	}
 

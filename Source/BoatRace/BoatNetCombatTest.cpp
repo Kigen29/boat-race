@@ -1,9 +1,9 @@
 #include "BoatNetCombatTest.h"
 
-#include "../BoatPawn.h"
-#include "../BoatRace.h"
-#include "../BoatRacePlayerState.h"
-#include "../BoatWeapons.h"
+#include "BoatPawn.h"
+#include "BoatRace.h"
+#include "BoatRacePlayerState.h"
+#include "BoatWeapons.h"
 #include "Components/BoxComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
