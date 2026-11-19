@@ -49,6 +49,7 @@ enum class EMenuAction : uint8
 	BackToMenu,
 	Garage,
 	Leaderboard,
+	JetGame,
 	GarageBoat,
 	GaragePaint,
 	GarageFlame,

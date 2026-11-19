@@ -393,6 +393,7 @@ void ABoatRacePlayerController::BuildMenuItems(TArray<FMenuItem>& Items) const
 			: FString(TEXT("Set a lap; then race its ghost")));
 		Add(TEXT("Garage"), EMenuAction::Garage, TEXT("Boats, paint, nitrous and upgrades"), Prefs ? FString::Printf(TEXT("%d coins"), Prefs->Coins) : FString());
 		Add(TEXT("Leaderboard"), EMenuAction::Leaderboard, TEXT("Your best ten races on this machine"));
+		Add(TEXT("Jet fighters"), EMenuAction::JetGame, TEXT("Phase two: the air-combat game (test flight for now)"));
 		Add(TEXT("Host a race"), EMenuAction::Host, TEXT("Friends on your Wi-Fi can join you"));
 		const ULanDiscovery* Discovery = GetGameInstance() ? GetGameInstance()->GetSubsystem<ULanDiscovery>() : nullptr;
 		const TArray<FFoundRace> NoRaces;
@@ -857,6 +858,10 @@ void ABoatRacePlayerController::ActivateMenuItem(const FMenuItem& Item, int32 St
 	case EMenuAction::BackToMenu:
 		OpenMenu(EMenuScreen::None);
 		UGameplayStatics::OpenLevel(this, FName(RaceMap));
+		break;
+	case EMenuAction::JetGame:
+		// The second game: same map, the jet game mode by its alias in DefaultEngine.ini.
+		UGameplayStatics::OpenLevel(this, FName(RaceMap), true, TEXT("game=Jets"));
 		break;
 	case EMenuAction::Quit:
 		ConsoleCommand(TEXT("quit"));

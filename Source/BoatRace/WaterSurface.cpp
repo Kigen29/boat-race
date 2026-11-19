@@ -189,12 +189,18 @@ void AWaterSurface::RefreshGrid(float Seconds)
 				const double WorldY = OriginY + Y * CellSize;
 				// Within about seven metres of the beach or the rocks the
 				// water breaks white, fading out to clear water.
-				const float Clearance = BayTerrain::GetClearanceMetres(WorldX / 100.0, WorldY / 100.0);
+				const float Clearance = bOpenSea ? 100.f : BayTerrain::GetClearanceMetres(WorldX / 100.0, WorldY / 100.0);
 				const float Foam = FMath::Clamp(1.f - Clearance / 7.f, 0.f, 1.f);
 				VertexColors[Y * VertsPerSide + X] = FLinearColor(Foam, 0.f, 0.f, 1.f);
 			}
 		}
 	}
+}
+
+void AWaterSurface::SetFarWaterSize(float Metres)
+{
+	// The plane mesh is one metre square.
+	FarWater->SetRelativeScale3D(FVector(Metres, Metres, 1.f));
 }
 
 void AWaterSurface::Tick(float DeltaSeconds)
@@ -225,5 +231,8 @@ void AWaterSurface::Tick(float DeltaSeconds)
 
 	// Keep the horizon plane under the camera too, a little below the mean
 	// surface so the grid edge is never silhouetted against it.
-	FarWater->SetWorldLocation(FVector(GridCentre.X, GridCentre.Y, OceanWaves::MeanLevel - 45.f));
+	// From a boat, crests in front hide the flat plane in the troughs; from
+	// the air you look straight down into them, so the open sea sinks the
+	// plane below the deepest trough (the six amplitudes add to 130 cm).
+	FarWater->SetWorldLocation(FVector(GridCentre.X, GridCentre.Y, OceanWaves::MeanLevel - (bOpenSea ? 140.f : 45.f)));
 }

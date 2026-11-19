@@ -43,6 +43,14 @@ public:
 	UPROPERTY(Config)
 	float UpdateInterval = 0.f;
 
+	/** Open sea with no shore (the jet game): skips the bay's shore foam,
+	 *  which would otherwise draw white lines where the boat bay's beaches are. */
+	bool bOpenSea = false;
+
+	/** How wide the flat sea beyond the moving grid is, metres. The bay's 12 km
+	 *  is plenty from a boat; from a jet at 4 km the horizon is 200 km off. */
+	void SetFarWaterSize(float Metres);
+
 	/** Called by ARaceEnvironment once the weather is decided. */
 	void SetWaterTint(const FLinearColor& Tint);
 

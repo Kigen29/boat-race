@@ -77,6 +77,7 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets. Text is the engine's Roboto through Slate's font cache (sharp at any size); a compass tape and a world-space waypoint over the next gate; the menu panels |
 | `BoatRacePlayerController` | Menus as data (`BuildMenuItems`): title screen, pause, settings, controls; keys, gamepad and mouse. While a menu is open the boat ignores the driving keys |
 | `LanDiscovery` | Hosts announce on UDP 7778 once a second; the menu lists what it hears, number keys join |
+| `JetGame` | Phase two, the jet game: a second game in the same program, opened from the boat title screen with `?game=Jets` (alias in `DefaultEngine.ini`). Its own game mode, state (double clock), world (open sea and sky, no bay), controller and HUD; Escape returns to the boats. For now a free-flying scout camera stands in for the jet. Plan: `reports/Jet combat phase two plan.md` |
 
 ### Rules that hold the design together
 
@@ -131,6 +132,7 @@ bash Scripts/menu_test.sh       # screenshots and live circuit/direction changes
 bash Scripts/environment_test.sh # matching sunny gameplay images of all three environments
 Scripts/smoke_test.sh 25 -Circuit=2 # visual tour of Canyon Run; 0 bay, 1 harbour
 Scripts/net_test.sh 2           # host/client on Canyon Run, selected through the travel URL
+bash Scripts/jet_check.sh       # jet game: frame rate and screenshots at 30 m, 300 m, 1.5 km, 4 km
 ```
 
 Circuit identity is also scenery: 0 is a low tropical coast, 1 an industrial
