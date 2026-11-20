@@ -7,6 +7,7 @@ class UCameraComponent;
 class UBoxComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
+class UProceduralMeshComponent;
 
 /** Normalised pilot commands, shared by human input and flight verification. */
 struct FJetControls
@@ -41,6 +42,9 @@ public:
     bool IsStalling() const { return FMath::Abs(AngleOfAttack) > StallAoA; }
     float GetSurfaceClearance() const;
     bool NeedsPullUp() const;
+    int32 GetAirframeIndex() const { return AirframeIndex; }
+    bool HasAirframeArt() const { return bHasAirframeArt; }
+    void SelectAirframe(int32 Index);
     float LoadG = 1.f;
     bool bAssisted = true;
     bool bCrashed = false;
@@ -81,6 +85,7 @@ private:
     UPROPERTY() TObjectPtr<USpringArmComponent> CameraArm;
     UPROPERTY() TObjectPtr<UCameraComponent> Camera;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Body;
+    UPROPERTY() TObjectPtr<UProceduralMeshComponent> FallbackWing;
     FVector Velocity = FVector(150, 0, 0); // metres/second; engine positions are centimetres
     FVector Rates = FVector::ZeroVector;
     double Accumulator = 0.;
@@ -95,4 +100,6 @@ private:
     bool bTourShotPending = false;
     int32 TourStage = 0;
     float TourClock = 0.f;
+    int32 AirframeIndex = 0;
+    bool bHasAirframeArt = false;
 };

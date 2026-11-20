@@ -1,0 +1,36 @@
+id,feature,status,dependencies,acceptance
+F01,Original three-aircraft visual selection,implemented,foundation,V selects three imported meshes; same flight profile
+F02,Aviation HUD typeface,implemented,foundation,Text renders in game and pause; font license staged
+F03,Damage and team ownership,planned,foundation,One confirmed event changes hull once
+F04,Nose gun,planned,F03,Swept shots damage drone and stop at terrain
+F05,Gun heat and aim lead,planned,F04,Heat limits fire; lead uses actual relative velocity
+F06,Target selection and line of sight,planned,F03,Range/cone/terrain eligibility controls acquisition
+F07,Standard guided missile,planned,F06,Finite turning/lifetime; swept collision; evadable
+F08,Incoming warning,planned,F07,Only actual threats produce directional warning
+F09,Flares,planned,F07 F08,Finite inventory affects compatible seeker
+F10,Training drone AI,planned,F04 F07,Uses same flight limits; patrol pursue evade disengage
+F11,Complete training mission,planned,F09 F10,Success failure retry work without console
+F12,Chunked terrain authoring,planned,foundation,Near route collision matches visible ground
+F13,Stonegate combat routes,planned,F12,Multiple usable approaches and escape corridors
+F14,Water body query,planned,F12,Ocean and elevated lake contact share body definition
+F15,Lake and channel rendering,planned,F14,Correct shore/mean level; no global-Z crest bug
+F16,Relay objective states,planned,F03 F13,Damage changes installation and scores once
+F17,Team match lifecycle,planned,F11 F16,Start timer scoring overtime winner replay
+F18,Fair spawn selection,planned,F17,Avoid active enemy sightline; protection visible
+F19,2v2 bot tactics,planned,F10 F17,Bots attack objectives and protect allies
+F20,LAN lobby and lifecycle,planned,F17,Host join ready start return disconnect
+F21,Network flight states,planned,F20,Bounded prediction and interpolation measured
+F22,Network weapon authority,planned,F21,Server validates cadence inventory damage
+F23,Network objectives and respawn,planned,F22,All peers agree score winner and reset
+F24,Four-peer reliability,planned,F23,Three rounds under latency/loss; no duplicate score
+F25,Distinct flight profiles,planned,F11,Measured acceleration turn and endurance tradeoffs
+F26,Production aircraft art,planned,F25,UVs atlas LODs anchors animation removable stores
+F27,Functional hangar and save,planned,F25 F26,Selection visual loadout and actual equipment agree
+F28,Azure Basin,planned,F15 F17,Elevated lake and three navigable passes
+F29,Redwake Canyons,planned,F13 F17,Readable junctions and multiple canyon routes
+F30,Frostline Fjord,planned,F15 F17,Snow/sky HUD contrast and channel routes pass
+F31,Convoy Intercept,planned,F23,Moving vulnerable convoy with attack/defend outcomes
+F32,Cloud targeting rules,planned,F06 F07,New locks existing missiles radar AI follow explicit rules
+F33,Optional ring training,planned,F11,Gates validate actual crossing and reset
+F34,Advanced aircraft and Caldera,planned,F24 F27,Additional content after first polished release
+F35,Packaged art completeness,planned,F26,Fresh checkout import/cook contains meshes fonts effects

@@ -160,4 +160,5 @@ private:
     void Label(const FString& Text, float X, float Y, float Size, const FLinearColor& Color, float Align = 0.f);
     void Circle(const FVector2D& Centre, float Radius, const FLinearColor& Color);
     UPROPERTY() TObjectPtr<UFont> FlightFont;
+    bool bTechnicalTypeface = false;
 };

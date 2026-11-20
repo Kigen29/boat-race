@@ -1,0 +1,41 @@
+[
+  {
+    "model": "JetKite",
+    "triangles": 3772,
+    "material_slots": 12,
+    "dimensions_metres": [
+      13.454,
+      9.8,
+      3.07
+    ],
+    "callsign": "AF-01 KITE",
+    "author": "Original JetFighter procedural art",
+    "stage": "silhouette-material prototype"
+  },
+  {
+    "model": "JetRook",
+    "triangles": 4308,
+    "material_slots": 12,
+    "dimensions_metres": [
+      17.269,
+      11.8,
+      3.07
+    ],
+    "callsign": "AF-02 ROOK",
+    "author": "Original JetFighter procedural art",
+    "stage": "silhouette-material prototype"
+  },
+  {
+    "model": "JetManta",
+    "triangles": 4316,
+    "material_slots": 12,
+    "dimensions_metres": [
+      18.072,
+      14.0,
+      3.07
+    ],
+    "callsign": "AF-03 MANTA",
+    "author": "Original JetFighter procedural art",
+    "stage": "silhouette-material prototype"
+  }
+]

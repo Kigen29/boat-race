@@ -14,6 +14,9 @@
 #include "Misc/CommandLine.h"
 #include "UnrealClient.h"
 #include "JetFighter.h"
+#include "JetAircraft.h"
+#include "Engine/StaticMesh.h"
+#include "ProceduralMeshComponent.h"
 
 AJetPawn::AJetPawn()
 {
@@ -29,15 +32,14 @@ AJetPawn::AJetPawn()
     Collision->SetGenerateOverlapEvents(false);
     Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeAirframe"));
     Body->SetupAttachment(RootComponent);
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> Mesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Mesh(TEXT("/Engine/BasicShapes/Cone.Cone"));
     if (Mesh.Succeeded()) Body->SetStaticMesh(Mesh.Object);
-    Body->SetRelativeScale3D(FVector(8.f, 1.2f, 0.7f));
+    Body->SetRelativeRotation(FRotator(-90.f, 0.f, 0.f));
+    Body->SetRelativeScale3D(FVector(0.7f, 0.7f, 10.f));
     Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    auto* Wing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Wing"));
-    Wing->SetupAttachment(RootComponent);
-    if (Mesh.Succeeded()) Wing->SetStaticMesh(Mesh.Object);
-    Wing->SetRelativeScale3D(FVector(2.f, 9.f, 0.15f));
-    Wing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    FallbackWing = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("FallbackWing"));
+    FallbackWing->SetupAttachment(RootComponent);
+    FallbackWing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     CameraArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("ChaseArm"));
     CameraArm->SetupAttachment(RootComponent);
     CameraArm->TargetArmLength = 1800.f;
@@ -56,9 +58,46 @@ void AJetPawn::BeginPlay()
 {
     Super::BeginPlay();
     ResetFlight();
+    // A recognisable wing silhouette remains if source art has not yet been
+    // imported. Normal play uses the original Blender aircraft.
+    TArray<FVector> V = {FVector(250,0,0), FVector(-250,490,0), FVector(-100,0,-30), FVector(-250,-490,0)};
+    TArray<int32> I = {0,1,2, 0,2,3, 2,1,0, 3,2,0};
+    FallbackWing->CreateMeshSection_LinearColor(0,V,I,TArray<FVector>(),TArray<FVector2D>(),TArray<FLinearColor>(),TArray<FProcMeshTangent>(),false);
+    SelectAirframe(AirframeIndex);
     bFlightTour = FParse::Param(FCommandLine::Get(), TEXT("JetFlightTour"));
-    if (auto* Paint = Body->CreateDynamicMaterialInstance(0, BoatArt::BasicMaterial()))
-        Paint->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.15f, 0.28f, 0.38f));
+}
+
+void AJetPawn::SelectAirframe(int32 Index)
+{
+    const auto& Roster = JetAircraft::Roster();
+    AirframeIndex = (Index % Roster.Num()+Roster.Num()) % Roster.Num();
+    const auto& Aircraft = Roster[AirframeIndex];
+    UStaticMesh* Model = LoadObject<UStaticMesh>(nullptr, Aircraft.Asset, nullptr, LOAD_NoWarn | LOAD_Quiet);
+    bHasAirframeArt = Model != nullptr;
+    if (Model)
+    {
+        Body->SetStaticMesh(Model);
+        Body->SetRelativeRotation(FRotator::ZeroRotator);
+        // Imported GLBs may carry metre or centimetre units. Normalise to
+        // the authored length, keeping all three silhouettes distinct.
+        const float Length = Model->GetBoundingBox().GetSize().X;
+        Body->SetRelativeScale3D(FVector(Aircraft.LengthMetres*100.f/FMath::Max(Length, 1.f)));
+        Body->EmptyOverrideMaterials();
+        BoatArt::Paint(Body);
+    }
+    else
+    {
+        Body->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone")));
+        Body->SetRelativeRotation(FRotator(-90.f, 0.f, 0.f));
+        Body->SetRelativeScale3D(FVector(0.7f, 0.7f, 10.f));
+        Body->EmptyOverrideMaterials();
+        if (auto* Paint = Body->CreateDynamicMaterialInstance(0, BoatArt::BasicMaterial()))
+            Paint->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.15f, 0.28f, 0.38f));
+    }
+    FallbackWing->SetVisibility(!bHasAirframeArt);
+    CameraArm->TargetArmLength = Aircraft.LengthMetres*180.f;
+    CameraArm->SocketOffset.Z = Aircraft.LengthMetres*35.f;
+    UE_LOG(LogJetFighter, Log, TEXT("Jet airframe: %s, model=%s"), Aircraft.Name, bHasAirframeArt ? TEXT("imported") : TEXT("fallback"));
 }
 void AJetPawn::ResetFlight()
 {
@@ -97,6 +136,7 @@ void AJetPawn::Tick(float DeltaSeconds)
         RunFlightTour(DeltaSeconds);
         return;
     }
+    if (PC->WasInputKeyJustPressed(EKeys::V) || PC->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Left)) SelectAirframe(AirframeIndex+1);
     if (PC->WasInputKeyJustPressed(EKeys::R) || PC->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Top)) ResetFlight();
     if (PC->WasInputKeyJustPressed(EKeys::F) || PC->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Left)) bAssisted = !bAssisted;
     if (PC->WasInputKeyJustPressed(EKeys::M))
@@ -124,6 +164,7 @@ void AJetPawn::RunFlightTour(float Dt)
             Cast<APlayerController>(GetController())->ConsoleCommand(TEXT("quit"));
             return;
         }
+        if (FParse::Param(FCommandLine::Get(), TEXT("JetArtTour")) && TourStage <= 2) SelectAirframe(TourStage);
         if (TourStage == 1) AimRotation = FRotator(10.f, 60.f, 0.f);
         if (TourStage == 2) AimRotation = FRotator(15.f, 60.f, 0.f);
         if (TourStage == 3)

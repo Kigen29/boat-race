@@ -1,0 +1,61 @@
+id,category,asset,status,priority,budget_or_constraint,acceptance
+A01,aircraft,Kite,prototype imported,P0,3.8–4.3k triangles; 12 slots currently,Visible chase/bank silhouette; production UVs and sockets still needed
+A02,aircraft,Rook,prototype imported,P0,3.8–4.3k triangles; 12 slots currently,Visible chase/bank silhouette; production UVs and sockets still needed
+A03,aircraft,Manta,prototype imported,P0,3.8–4.3k triangles; 12 slots currently,Visible chase/bank silhouette; production UVs and sockets still needed
+A04,aircraft,Bulwark,planned,P3,18–30k hero; 3–4 slots,Distinct role and silhouette; balanced measured flight
+A05,aircraft,Specter,planned,P3,18–30k hero; 3–4 slots,Distinct role and silhouette; balanced measured flight
+A06,aircraft,Heron,planned,P3,18–30k hero; 3–4 slots,Distinct role and silhouette; balanced measured flight
+A07,aircraft detail,Production aircraft atlas,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A08,aircraft detail,Canopy and cockpit interior,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A09,aircraft detail,Animated control surfaces,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A10,aircraft detail,Removable weapon rails,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A11,aircraft detail,Engine nozzle and plume,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A12,aircraft detail,Damage masks and debris,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A13,aircraft detail,Kite livery pair,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A14,aircraft detail,Rook livery pair,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+A15,aircraft detail,Manta livery pair,planned,P1,2k atlas; 1k low preset,Visible state matches flight/equipment/damage event
+T01,environment,Stonegate terrain and route source,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T02,environment,Stonegate cliff kit,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T03,environment,Stonegate shoreline kit,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T04,environment,Relay installation intact/destroyed,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T05,environment,Airstrip buildings and markings,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T06,environment,Viaduct landmark,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T07,environment,Coastal vegetation kit,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T08,environment,Ocean shore foam,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T09,environment,Elevated lake body and banks,planned,P1,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T10,environment,Azure Basin terrain,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T11,environment,Dam and spillway,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T12,environment,Redwake mesas and canyon kit,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T13,environment,Frostline fjord terrain,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T14,environment,Snow rock material layers,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T15,environment,Sable Caldera terrain,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+T16,environment,Volcanic rock and ash,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
+V01,gameplay visual,Training drone,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V02,gameplay visual,Standard missile,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V03,gameplay visual,Gun tracer and muzzle flash,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V04,gameplay visual,Hit spark and impact,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V05,gameplay visual,Flare and smoke,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V06,gameplay visual,Missile trail,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V07,gameplay visual,Aircraft explosion,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V08,gameplay visual,Persistent wreck smoke,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V09,gameplay visual,Objective state beacon,planned,P2,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V10,gameplay visual,Convoy ship,planned,P2,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V11,gameplay visual,Ship wake and damage,planned,P2,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+S01,audio,Engine idle/cruise/boost layers,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S02,audio,Gunfire and heat,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S03,audio,Missile launch,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S04,audio,Acquisition and lock,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S05,audio,Incoming missile,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S06,audio,Flare release and empty,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S07,audio,Hull hit and crash,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S08,audio,Stall and ground warning,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+S09,audio,Objective and round states,planned,P1,Licensed source; priority and distance falloff,Audible event/state distinction without visual dependence
+U01,typeface,Rajdhani Regular and SemiBold,implemented source,P0,OFL 1.1 included,Visible runtime Canvas text; cooked font files present
+U02,interface,Target acquisition brackets,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U03,interface,Gun lead marker,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U04,interface,Threat direction symbols,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U05,interface,Radar contact symbols,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U06,interface,Objective state icons,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U07,interface,Aircraft role icons,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U08,interface,Functional hangar panels,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state
+U09,interface,Scoreboard and results,planned,P1,Scalable shapes; text safe area,Readable at 720p; actions and values reflect actual state

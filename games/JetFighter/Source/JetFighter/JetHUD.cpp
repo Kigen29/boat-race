@@ -1,6 +1,10 @@
 #include "JetGame.h"
 #include "JetPawn.h"
 #include "JetTerrain.h"
+#include "JetAircraft.h"
+#include "Fonts/CompositeFont.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 
 #include "CanvasItem.h"
 #include "Engine/Canvas.h"
@@ -27,13 +31,30 @@ void AJetHUD::BeginPlay()
 {
     Super::BeginPlay();
     FlightFont = LoadObject<UFont>(nullptr, TEXT("/Engine/EngineFonts/Roboto.Roboto"));
+    const FString Folder = FPaths::ProjectContentDir()/TEXT("Fonts");
+    const FString Regular = Folder/TEXT("Rajdhani-Regular.ttf");
+    const FString Bold = Folder/TEXT("Rajdhani-SemiBold.ttf");
+    if (IFileManager::Get().FileExists(*Regular) && IFileManager::Get().FileExists(*Bold))
+    {
+        // Canvas requires a UFont carrier even when Slate can measure the
+        // raw composite font. Without it, valid glyphs never reach DrawItem.
+        auto* Font = NewObject<UFont>(this, TEXT("JetAviationFont"));
+        Font->FontCacheType = EFontCacheType::Runtime;
+        auto& Faces = Font->GetMutableInternalCompositeFont().DefaultTypeface.Fonts;
+        Faces.Emplace(FName(TEXT("Regular")), Regular, EFontHinting::Default, EFontLoadingPolicy::LazyLoad);
+        Faces.Emplace(FName(TEXT("Bold")), Bold, EFontHinting::Default, EFontLoadingPolicy::LazyLoad);
+        FlightFont = Font;
+        bTechnicalTypeface = true;
+    }
 }
 
 void AJetHUD::Label(const FString& Text, float X, float Y, float Size, const FLinearColor& Color, float Align)
 {
     if (FlightFont && FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer())
     {
-        const FSlateFontInfo Font(FlightFont, Size, FName(TEXT("Regular")));
+        const FSlateFontInfo Font = bTechnicalTypeface
+            ? FSlateFontInfo(FlightFont, Size*1.12f, FName(Size >= 20.f ? TEXT("Bold") : TEXT("Regular")))
+            : FSlateFontInfo(FlightFont, Size, FName(TEXT("Regular")));
         const auto Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
         const FVector2D Extent = Measure->Measure(Text, Font);
         FCanvasTextItem Item(FVector2D(FMath::RoundToFloat(X-Extent.X*Align), Y), FText::FromString(Text), Font, Color);
@@ -67,7 +88,7 @@ void AJetHUD::DrawHUD()
     const float Mid = W*0.5f;
     DrawRect(Panel, 20*S, 20*S, 245*S, 74*S);
     Label(TEXT("JET FIGHTERS"), 36*S, 29*S, 23*S, Ink);
-    Label(Scout ? TEXT("ALTITUDE SURVEY") : TEXT("FREE FLIGHT"), 36*S, 61*S, 12*S, Cyan);
+    Label(Scout ? TEXT("ALTITUDE SURVEY") : JetAircraft::Roster()[Jet->GetAirframeIndex()].Name, 36*S, 61*S, 12*S, Cyan);
     Label(FString::Printf(TEXT("%d FPS"), FMath::RoundToInt(PC->GetFps())), W-30*S, 30*S, 13*S, Dim, 1.f);
 
     if (Scout)
@@ -189,7 +210,7 @@ void AJetHUD::DrawHUD()
         W-28*S, H-83*S, 14*S, Jet->IsBoosting() ? Amber : Ink, 1.f);
     Label(TEXT("Mouse aim  /  M direct stick    Up/Down pitch    A/D roll    Q/E rudder    W/S throttle    Shift boost    Space brake"),
         Mid, H-53*S, 12*S, Dim, 0.5f);
-    Label(TEXT("F assists    N next landmark    R reset    Esc pause    |    Gamepad: left stick fly, triggers throttle, LB boost, RB brake, X assists, Y reset, D-pad right nav"),
+    Label(TEXT("V airframe    F assists    N landmark    R reset    Esc pause    |    Gamepad: sticks fly, triggers throttle, LB boost, RB brake, X assists, Y reset, D-pad left jet/right nav"),
         Mid, H-29*S, 11*S, Dim, 0.5f);
 
     FString Warning, Detail;

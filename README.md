@@ -61,17 +61,21 @@ code never includes either game's rules or terrain implementation.
 BoatRace has three circuits, LAN racing, computer rivals, combat, garage and
 weather. JetFighter has local flight, mouse aiming, gamepad controls, a flight
 HUD, island terrain, navigation landmarks, clouds, swept collisions, crash
-recovery and airspace boundaries. Its airframe
-is still a placeholder, and its controls need hands-on playtesting.
+recovery and airspace boundaries. Three selectable original aircraft prototypes
+and a licensed Rajdhani HUD font replace the earlier box airframe. Aircraft
+currently share one flight profile; controls need hands-on playtesting.
 
-Next for JetFighter: hands-on flight tuning, a 3D ring course and networked
-air racing before introducing gun/missile combat and AI pilots. The island
-world includes an airstrip landmark and altitude-aware water.
+Next for JetFighter: a complete local gun/missile/flare/drone combat slice,
+then an authored mountain-channel map, team objectives and four-player LAN.
+The extensive research/art plan specifies original jets, lakes, canyons,
+HUD, effects, sound and production gates. These combat features remain planned.
+Run `Scripts/import_jet_art.sh` after building to generate jet Unreal assets;
+`Scripts/jet_art_tour.sh` checks all three. See games/JetFighter/Art for source.
 
 - [BoatRace guide](games/BoatRace/README.md)
 - [BoatRace multiplayer onboarding](games/BoatRace/ONBOARDING.md)
 - [JetFighter controls and checks](games/JetFighter/README.md)
-- [Jet development plan](games/JetFighter/docs/reports/Jet%20combat%20phase%20two%20plan.md)
+- [Jet research and production plan](games/JetFighter/docs/vision/00_README.md)
 - [Shared plugin](packages/MaritimeCore/README.md)
 
 Static workspace checks: `python3 tools/check_monorepo.py`.
@@ -79,7 +83,7 @@ Static workspace checks: `python3 tools/check_monorepo.py`.
 ## Verification
 
 Verified on Linux with Unreal 5.9 preview-1, 20 November 2026: both editor
-builds, BoatRace's seven and JetFighter's eight engine tests, numerical
+builds, BoatRace's seven and JetFighter's nine engine tests, numerical
 boat/jet checks, all three
 course checks, BoatRace's 14-shot rendered tour (lowest sampled stop 48 fps at
 1280 × 720), and JetFighter's flight/impact/respawn and pause/resume tours.

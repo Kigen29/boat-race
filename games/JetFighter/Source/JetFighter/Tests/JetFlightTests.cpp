@@ -1,6 +1,8 @@
 #include "../JetPawn.h"
 #include "../JetTerrain.h"
 #include "../JetScenery.h"
+#include "../JetAircraft.h"
+#include "Misc/CommandLine.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -310,6 +312,29 @@ bool FJetWaterBudgetTest::RunTest(const FString& Parameters)
         TestTrue(TEXT("Grid spacing stays a power of two"), FMath::IsNearlyEqual(FMath::Log2(Scale), FMath::RoundToFloat(FMath::Log2(Scale))));
         Previous = Scale;
     }
+    return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetAirframeArtTest, "JetFighter.Art.AirframeRoster",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FJetAirframeArtTest::RunTest(const FString& Parameters)
+{
+    JetFlightTests::FWorld F;
+    const auto& Roster = JetAircraft::Roster();
+    TestEqual(TEXT("Three original airframes are selectable"), Roster.Num(), 3);
+    for (int32 Index = 0; Index < Roster.Num(); ++Index)
+    {
+        F.Jet->SelectAirframe(Index);
+        TestEqual(TEXT("Selected airframe is retained"), F.Jet->GetAirframeIndex(), Index);
+        TestTrue(TEXT("Every role has a positive authored length and span"), Roster[Index].LengthMetres > 10.f && Roster[Index].SpanMetres > 8.f);
+        TestTrue(TEXT("Aircraft art belongs to the JetFighter project"), FString(Roster[Index].Asset).StartsWith(TEXT("/Game/Aircraft/")));
+        if (FParse::Param(FCommandLine::Get(), TEXT("RequireJetArt")))
+            TestTrue(TEXT("Original aircraft asset loads without fallback"), F.Jet->HasAirframeArt());
+    }
+    F.Jet->SelectAirframe(-1);
+    TestEqual(TEXT("Reverse selection wraps safely"), F.Jet->GetAirframeIndex(), 2);
+    F.Jet->SelectAirframe(3);
+    TestEqual(TEXT("Forward selection wraps safely"), F.Jet->GetAirframeIndex(), 0);
     return true;
 }
 #endif
