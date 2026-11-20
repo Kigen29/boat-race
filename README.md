@@ -69,6 +69,48 @@ To race with three friends on the same Wi-Fi: `Scripts/package.sh`, then
 `Scripts/share.sh`, and each friend pastes the line it prints. Details in
 [ONBOARDING.md](ONBOARDING.md).
 
+## Jet Fighters — flight prototype
+
+Choose **Jet fighters** on the title screen, or run `Scripts/play.sh jets`.
+The aircraft starts airborne over the sea. Move the mouse to set an aim
+direction; the aircraft banks and climbs towards it. The amber circle is
+the aim point and the cyan marker shows where the aircraft is travelling.
+**M** switches between mouse aim and direct keyboard/gamepad control.
+
+| Input | Action |
+|---|---|
+| Up / Down | Push nose down / pull up |
+| A / D | Roll left / right |
+| Q / E | Rudder left / right |
+| W / S | Increase / decrease throttle; holds the chosen setting |
+| Shift / Space | Afterburner / airbrake |
+| F | Assisted / Expert flight |
+| R | Reset in the air |
+| Esc | Return to boats |
+
+Gamepad: left stick flies, right stick steers the rudder, triggers change
+throttle, left shoulder boosts, right shoulder brakes, X toggles assists,
+and Y resets. Manual flight input overrides mouse aim and keeps the new
+direction when released. Assisted flight trims lift and limits angle of
+attack; Expert permits stalls. Watch the speed, descent and stall warnings.
+Sea or solid-obstacle impacts respawn after three seconds. Leaving the
+6 km radius or climbing above 6 km gives ten seconds to return.
+
+The jet still has placeholder geometry. The world is open sea; LAN flight,
+air races and weapons are later stages. This mode does not yet host jet
+multiplayer games. Flight tuning lives in the `JetPawn` section of
+`Config/DefaultGame.ini`.
+
+```bash
+python3 Scripts/flight_check.py   # numerical flight and aim checks
+bash Scripts/jet_flight_test.sh  # actual Unreal flight/collision/respawn tests
+bash Scripts/jet_flight_tour.sh  # rendered level/bank/climb/impact/respawn tour
+```
+
+The tour saves `JetFlight_*.png` in `Saved/Screenshots/LinuxEditor/`.
+`Scripts/jet_check.sh` still measures the sky and sea from a parked scout
+camera at four altitudes.
+
 ## Documentation
 
 | | |

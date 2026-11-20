@@ -3,6 +3,7 @@
 #
 #   Scripts/play.sh                 main menu (H host, J join, ENTER solo)
 #   Scripts/play.sh host            start hosting immediately
+#   Scripts/play.sh jets            jet free flight
 #   Scripts/play.sh join 10.0.0.5   join the host at that address
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -10,6 +11,10 @@ MODE="${1:-menu}"
 ARGS=("$PROJECT_FILE")
 EXTRA=()
 case "$MODE" in
+	jets)
+		ARGS+=("/Engine/Maps/Entry?game=Jets")
+		EXTRA=("${@:2}")
+		;;
 	host)
 		ARGS+=("/Engine/Maps/Entry?listen")
 		EXTRA=("${@:2}")
@@ -26,7 +31,7 @@ case "$MODE" in
 		EXTRA=("${@:2}")
 		;;
 	*)
-		echo "Unknown mode '$MODE'. Use: host | join <address> | menu" >&2
+		echo "Unknown mode '$MODE'. Use: host | join <address> | menu | jets" >&2
 		exit 1
 		;;
 esac

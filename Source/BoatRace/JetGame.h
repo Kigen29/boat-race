@@ -85,9 +85,8 @@ protected:
 };
 
 /**
- * A free-flying camera that stands in for the jet until it exists. Its real
- * job is measurement: nothing in the boat game ever went above 200 m, so
- * nobody knows how the sea and sky draw, or how fast, from altitude.
+ * The altitude-measurement camera used by -JetCheck. Normal play uses
+ * AJetPawn; keeping this separate makes performance measurements repeatable.
  */
 UCLASS()
 class AJetScoutPawn : public APawn
@@ -133,6 +132,7 @@ private:
 
 	float SmoothedFps = 60.f;
 	bool bJetCheck = false;
+	bool bInputReady = false;
 	bool bShotPending = false;
 	int32 CheckStop = -1;
 	float CheckClock = 0.f;
@@ -147,5 +147,10 @@ class AJetHUD : public AHUD
 	GENERATED_BODY()
 
 public:
+    virtual void BeginPlay() override;
 	virtual void DrawHUD() override;
+private:
+    void Label(const FString& Text, float X, float Y, float Size, const FLinearColor& Color, float Align = 0.f);
+    void Circle(const FVector2D& Centre, float Radius, const FLinearColor& Color);
+    UPROPERTY() TObjectPtr<UFont> FlightFont;
 };

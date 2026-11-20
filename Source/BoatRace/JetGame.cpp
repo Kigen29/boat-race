@@ -1,4 +1,5 @@
 #include "JetGame.h"
+#include "JetPawn.h"
 
 #include "BoatRace.h"
 #include "RaceWeather.h"
@@ -36,7 +37,8 @@ namespace JetGameLocal
 
 AJetGameMode::AJetGameMode()
 {
-	DefaultPawnClass = AJetScoutPawn::StaticClass();
+	DefaultPawnClass = FParse::Param(FCommandLine::Get(), TEXT("JetCheck"))
+        ? AJetScoutPawn::StaticClass() : AJetPawn::StaticClass();
 	PlayerControllerClass = AJetPlayerController::StaticClass();
 	GameStateClass = AJetGameState::StaticClass();
 	HUDClass = AJetHUD::StaticClass();
@@ -204,7 +206,6 @@ void AJetPlayerController::BeginPlay()
 	Super::BeginPlay();
 	if (IsLocalController())
 	{
-		SetInputMode(FInputModeGameOnly());
 		bShowMouseCursor = false;
 		bJetCheck = FParse::Param(FCommandLine::Get(), TEXT("JetCheck"));
 	}
@@ -220,6 +221,12 @@ void AJetPlayerController::PlayerTick(float DeltaTime)
 	if (!IsLocalController())
 	{
 		return;
+	}
+	// BeginPlay can run before the local input object exists in UE 5.9.
+	if (!bInputReady && PlayerInput)
+	{
+		SetInputMode(FInputModeGameOnly());
+		bInputReady = true;
 	}
 	if (WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
 	{
@@ -290,32 +297,4 @@ void AJetPlayerController::RunJetCheck(float DeltaTime)
 	CheckSeconds = 0.f;
 	++CheckStop;
 	bShotPending = true;
-}
-
-// ---- HUD --------------------------------------------------------------------
-
-void AJetHUD::DrawHUD()
-{
-	Super::DrawHUD();
-	if (Canvas == nullptr || GEngine == nullptr)
-	{
-		return;
-	}
-	const AJetPlayerController* PC = Cast<AJetPlayerController>(GetOwningPlayerController());
-	const AJetScoutPawn* Scout = PC ? Cast<AJetScoutPawn>(PC->GetPawn()) : nullptr;
-	UFont* Big = GEngine->GetLargeFont();
-	UFont* Small = GEngine->GetMediumFont();
-	const float Scale = Canvas->SizeY / 1080.f;
-
-	DrawText(TEXT("JET FIGHTERS"), FLinearColor(1.f, 0.85f, 0.3f), 40.f * Scale, 30.f * Scale, Big, 2.f * Scale);
-	DrawText(TEXT("Test flight: the jet and its world are being built"), FLinearColor::White, 40.f * Scale, 80.f * Scale, Small, 1.2f * Scale);
-	if (Scout != nullptr)
-	{
-		const FString Readout = FString::Printf(TEXT("Height %d m    Speed %d km/h    %d fps"),
-			FMath::RoundToInt(static_cast<float>(Scout->GetActorLocation().Z) / 100.f), FMath::RoundToInt(Scout->GetSpeedMetres() * 3.6f),
-			PC ? FMath::RoundToInt(PC->GetFps()) : 0);
-		DrawText(Readout, FLinearColor::White, 40.f * Scale, 115.f * Scale, Small, 1.2f * Scale);
-	}
-	DrawText(TEXT("Mouse look   W/S forward   A/D sideways   E/Q up/down   Shift fast   Esc back to the boats"),
-		FLinearColor(0.8f, 0.9f, 1.f), 40.f * Scale, Canvas->SizeY - 60.f * Scale, Small, 1.1f * Scale);
 }

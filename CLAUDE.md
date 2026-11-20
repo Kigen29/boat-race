@@ -77,7 +77,7 @@ If it says files differ, `git restore .` takes the repository's version.
 | `BoatRaceHUD` | Everything on screen, drawn on the canvas — no UI assets. Text is the engine's Roboto through Slate's font cache (sharp at any size); a compass tape and a world-space waypoint over the next gate; the menu panels |
 | `BoatRacePlayerController` | Menus as data (`BuildMenuItems`): title screen, pause, settings, controls; keys, gamepad and mouse. While a menu is open the boat ignores the driving keys |
 | `LanDiscovery` | Hosts announce on UDP 7778 once a second; the menu lists what it hears, number keys join |
-| `JetGame` | Phase two, the jet game: a second game in the same program, opened from the boat title screen with `?game=Jets` (alias in `DefaultEngine.ini`). Its own game mode, state (double clock), world (open sea and sky, no bay), controller and HUD; Escape returns to the boats. For now a free-flying scout camera stands in for the jet. Plan: `reports/Jet combat phase two plan.md` |
+| `JetGame` | Phase two, the jet game: a second game in the same program, opened from the boat title screen with `?game=Jets` (alias in `DefaultEngine.ini`). Its own game mode, state (double clock), world (open sea and sky, no bay), controller and HUD; Escape returns to the boats. Normal entry now flies a local prototype (`JetPawn`): fixed 120 Hz lift/drag flight, keyboard/gamepad stick input, mouse-aim autopilot, assisted/expert toggle, chase camera, swept obstacles and sea-crash respawn. `-JetCheck` still uses the scout camera for altitude measurements. Flight is not yet networked. Plan: `reports/Jet combat phase two plan.md` |
 
 ### Rules that hold the design together
 
@@ -132,6 +132,8 @@ bash Scripts/menu_test.sh       # screenshots and live circuit/direction changes
 bash Scripts/environment_test.sh # matching sunny gameplay images of all three environments
 Scripts/smoke_test.sh 25 -Circuit=2 # visual tour of Canyon Run; 0 bay, 1 harbour
 Scripts/net_test.sh 2           # host/client on Canyon Run, selected through the travel URL
+bash Scripts/jet_flight_test.sh # actual jet flight, mouse aim, collision, respawn and boundary tests
+bash Scripts/jet_flight_tour.sh # rendered jet/HUD tour, with sea impact and respawn
 bash Scripts/jet_check.sh       # jet game: frame rate and screenshots at 30 m, 300 m, 1.5 km, 4 km
 ```
 
@@ -179,3 +181,53 @@ Generated 11 Nov 2026; `Scripts/fetch_assets.sh` downloads them and
 `Scripts/import_assets.sh` imports them to `/Game/Higgsfield`. The game falls
 back to placeholder shapes and plain water when they are absent, so never make
 them a hard requirement. Prompts and costs are in `HIGGSFIELD_ASSETS.md`.
+
+## Latest continuation — 20 Nov 2026
+
+Stage 1 now has a local flyable aircraft with fixed 120 Hz forces and rate
+control, assisted/expert flight, persistent throttle, keyboard and gamepad
+controls, mouse aiming with a banking autopilot, and a lagged chase camera.
+Normal entry uses `JetPawn`; `-JetCheck` retains the altitude scout camera.
+The airframe is still temporary engine-cube geometry.
+
+Run `Scripts/play.sh jets` or choose Jet fighters on the boat title screen.
+Mouse movement selects a world heading and pitch. Manual flight input takes
+priority and updates the held direction. M toggles mouse aim/direct stick;
+Up/Down push/pull, A/D roll, Q/E rudder, W/S change throttle, Shift boosts,
+Space brakes, F toggles assists, R resets, Escape returns to boats. Gamepad:
+left stick flies, right stick rudder, triggers change throttle, LB boost,
+RB brake, X assists, Y reset. Sticks have a deadzone.
+
+`JetHUD.cpp` draws a compass tape, airspeed/altitude/climb, flight-path and aim
+markers, an attitude instrument, throttle/boost, and stall/pull-up warnings.
+Sea contact uses OceanWaves; solid obstacles use a swept collision root.
+Impacts respawn after three seconds. Beyond the 6 km radius or 6 km ceiling,
+a ten-second return warning precedes respawning. All flight/aim/boundary
+numbers live in the JetPawn section of DefaultGame.ini.
+
+The original prototype's roll axis and sideslip yaw damping had the wrong
+sign. C++ and the numerical mirror now agree on positive right roll/right
+rudder; axis-direction regression checks cover both. Mouse assistance runs
+inside each physics step, so rendering frame rate cannot change its response.
+The jet controller waits for PlayerInput before setting input mode. The
+preview engine still emits two Enhanced Input null-player-input errors at
+startup; flight and rendering continue, so do not claim those are resolved.
+
+Verification:
+- `python3 Scripts/flight_check.py`: 15 checks pass, including mouse aim.
+- `bash Scripts/jet_flight_test.sh`: five Unreal automation tests pass:
+  FlightEnvelope, ControlAxesAndMouseAim, FrameRateIndependence (manual and
+  mouse aim at 20/60/144 fps), CollisionAndRespawn (including a 2 cm obstacle),
+  and AirspaceRecovery. These run the actual pawn in isolated engine worlds.
+- Unreal editor target compiles; existing boat physics checks pass.
+- `bash Scripts/jet_flight_tour.sh`: renders Level, Bank, Climb, Impact and
+  Respawn shots in Saved/Screenshots/LinuxEditor/JetFlight_*.png. Requires a
+  display; validates an actual sea impact and automatic recovery. Final tour
+  passed; level, bank (including the off-screen aim cue) and impact screenshots
+  were inspected.
+
+Still required before declaring Stage 1 finished: hands-on handling approval.
+Stage 2 terrain/clouds/world performance and Stage 3 network flight/air racing
+remain pending, followed by combat. The Stage 0 boat clock/shared-base
+refactor is unfinished; the separate jet mode avoids changing boat behaviour.
+Flight is local only; no jet hosting/joining UI is exposed yet.
