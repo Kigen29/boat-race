@@ -47,7 +47,8 @@ starting with public ranked matchmaking, an account service or a mobile port.
 | Water/clouds | Aerial water LOD and drifting visual puffs | Local water bodies and gameplay cloud volumes |
 | Navigation | Cycle named landmarks, bearing/distance/marker | Objectives, radar and team pings |
 | Crash/pause | Sea/terrain/solid contact, respawn, pause | Combat deaths, safe spawns and results |
-| Gun/missiles/flares | Not implemented for jets | Real weapon simulation and damage tests |
+| Nose gun / training hull | Implemented: swept rounds, heat, stationary drone and restart | Aim lead, production effects and moving targets |
+| Missiles/flares | Not implemented for jets | Targeting, seeker and countermeasure simulation |
 | AI/LAN combat | Not implemented | Same-physics pilots and server-authoritative combat |
 | Matches/progression | Not implemented | Actual phases, objectives, scores and local saves |
 

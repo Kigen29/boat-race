@@ -23,7 +23,7 @@ not a plan to copy its assets, branding, exact balancing or interface.
 - Keep BoatRace and JetFighter separate, sharing only suitable engine code.
 - Build an accessible PC chase-camera jet combat game with four-player LAN,
   bots and original aircraft; mobile is not the current delivery target.
-- Build a complete gun/missile/flare/drone training loop next, then one
+- Complete the gun/missile/flare/drone training loop next, then one
   coherent mountain-channel map and a local team match, then LAN completion.
 - Initial aircraft: Kite, Rook and Manta. Additional Bulwark, Specter and Heron
   are later production concepts, not six finished aircraft.
@@ -42,7 +42,9 @@ water, three original selectable model prototypes and the new HUD typeface.
 The three models share the existing flight profile. Their visual stores are
 not working weapons. Current islands are not the five proposed finished maps.
 
-Weapons, health-based combat, targeting, countermeasures, AI, team matches,
+A first stationary-drone gun encounter now adds hull damage, swept rounds,
+heat, hit feedback, destruction and restart; see [combat training](../COMBAT_TRAINING.md).
+Missiles, targeting, countermeasures, AI, team matches,
 LAN sessions, production terrain, lake bodies, hangar and progression remain
 planned. Read the roadmap before interpreting a roster or map table as a
 shipping feature list. Older docs outside this folder are historical; this

@@ -21,7 +21,7 @@ are historical and may contain source paths from before the migration.
 
 After shared code changes, build both editor targets and run Scripts/test.sh
 all. After changing a game's appearance, run that game's rendered tour.
-Jet tours: Scripts/jet_art_tour.sh and Scripts/jet_check.sh.
+Jet tours: Scripts/jet_art_tour.sh, Scripts/jet_combat_tour.sh and Scripts/jet_check.sh.
 Boat tours: Scripts/smoke_test.sh. Wave physics must use OceanWaves everywhere.
 
 Run python3 tools/check_monorepo.py after structural changes. Do not commit

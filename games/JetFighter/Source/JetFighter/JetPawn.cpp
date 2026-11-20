@@ -15,12 +15,16 @@
 #include "UnrealClient.h"
 #include "JetFighter.h"
 #include "JetAircraft.h"
+#include "JetCombatComponent.h"
+#include "JetTrainingTarget.h"
+#include "JetHealthComponent.h"
 #include "Engine/StaticMesh.h"
 #include "ProceduralMeshComponent.h"
 
 AJetPawn::AJetPawn()
 {
     PrimaryActorTick.bCanEverTick = true;
+    Combat = CreateDefaultSubobject<UJetCombatComponent>(TEXT("Combat"));
     Collision = CreateDefaultSubobject<UBoxComponent>(TEXT("AirframeCollision"));
     SetRootComponent(Collision);
     Collision->SetBoxExtent(FVector(400.f, 450.f, 70.f));
@@ -65,6 +69,8 @@ void AJetPawn::BeginPlay()
     FallbackWing->CreateMeshSection_LinearColor(0,V,I,TArray<FVector>(),TArray<FVector2D>(),TArray<FLinearColor>(),TArray<FProcMeshTangent>(),false);
     SelectAirframe(AirframeIndex);
     bFlightTour = FParse::Param(FCommandLine::Get(), TEXT("JetFlightTour"));
+    bCombatTour = FParse::Param(FCommandLine::Get(), TEXT("JetCombatTour"));
+    if (!bFlightTour && !FParse::Param(FCommandLine::Get(),TEXT("JetCheck"))) Combat->StartTraining();
 }
 
 void AJetPawn::SelectAirframe(int32 Index)
@@ -131,10 +137,16 @@ void AJetPawn::Tick(float DeltaSeconds)
     // A controller can pause after this frame's actor ticks were queued.
     // Honour the menu immediately instead of advancing one more flight step.
     if (const auto* JetPC = Cast<AJetPlayerController>(PC); JetPC && JetPC->IsFlightPaused()) return;
+    if (bCombatTour) { RunCombatTour(DeltaSeconds); return; }
     if (bFlightTour)
     {
         RunFlightTour(DeltaSeconds);
         return;
+    }
+    if (PC->WasInputKeyJustPressed(EKeys::T) || PC->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Down))
+    {
+        ResetFlight();
+        Combat->StartTraining();
     }
     if (PC->WasInputKeyJustPressed(EKeys::V) || PC->WasInputKeyJustPressed(EKeys::Gamepad_DPad_Left)) SelectAirframe(AirframeIndex+1);
     if (PC->WasInputKeyJustPressed(EKeys::R) || PC->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Top)) ResetFlight();
@@ -145,6 +157,7 @@ void AJetPawn::Tick(float DeltaSeconds)
         AimRotation = Velocity.Rotation();
     }
     AdvanceFlight(DeltaSeconds, ReadControls(PC, DeltaSeconds));
+    Combat->Advance(DeltaSeconds,PC->IsInputKeyDown(EKeys::LeftMouseButton) || PC->IsInputKeyDown(EKeys::Gamepad_FaceButton_Bottom),!bCrashed,Velocity);
     const float TargetFov = 82.f + FMath::Clamp(SpeedKmh() / 80.f, 0.f, 12.f) + (bBoosting ? 6.f : 0.f);
     Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, TargetFov, DeltaSeconds, 3.f));
 }
@@ -330,4 +343,50 @@ void AJetPawn::Step(float Dt, float Pitch, float Roll, float Yaw, float Throttle
     FHitResult Hit;
     SetActorLocationAndRotation(Position, (Q*Turn).GetNormalized(), true, &Hit);
     if (Hit.bBlockingHit || GetSurfaceClearance() <= 0.7f) Crash();
+}
+
+
+void AJetPawn::RunCombatTour(float Dt)
+{
+    if (bCombatShotPending)
+    {
+        bCombatShotPending=false;
+        CombatTourClock=0.f;
+        if (++CombatTourStage==5)
+        {
+            UE_LOG(LogJetFighter,Log,TEXT("Jet combat tour finished."));
+            Cast<APlayerController>(GetController())->ConsoleCommand(TEXT("quit"));
+            return;
+        }
+        if (CombatTourStage==4) { ResetFlight(); Combat->StartTraining(); }
+    }
+    // Advance capture stages on the same capped simulation time as flight
+    // and weapons, including startup/shader hitches.
+    CombatTourClock+=FMath::Min(Dt,0.1f);
+    const auto* Target=Combat->GetTarget();
+    if (Target && !Target->GetHealth()->IsDestroyed())
+        AimRotation=(Target->GetActorLocation()-GetActorLocation()).Rotation();
+    FJetControls Controls=AimControls();
+    Controls.Throttle=CruiseThrottle;
+    AdvanceFlight(Dt,Controls);
+    Combat->Advance(Dt,CombatTourStage>=1 && CombatTourStage<=3,!bCrashed,Velocity);
+    const TCHAR* Names[]={TEXT("Ready"),TEXT("Firing"),TEXT("Destroyed"),TEXT("Overheat"),TEXT("Restart")};
+    const bool Dead=Target && Target->GetHealth()->IsDestroyed();
+    const bool Ready=CombatTourStage==0 ? CombatTourClock>=1.f
+        : CombatTourStage==1 ? Combat->GetHits()>0
+        : CombatTourStage==2 ? Dead && Combat->GetHitSeconds()<0.05f
+        : CombatTourStage==3 ? Combat->IsOverheated() : CombatTourClock>=0.7f;
+    if (!Ready)
+    {
+        if (CombatTourClock>10.f)
+        {
+            UE_LOG(LogJetFighter,Error,TEXT("Jet combat tour: stage %d timed out"),CombatTourStage);
+            Cast<APlayerController>(GetController())->ConsoleCommand(TEXT("quit"));
+        }
+        return;
+    }
+    UE_LOG(LogJetFighter,Log,TEXT("Jet combat tour: %s, shots=%d, hits=%d, dead=%d, heat=%.2f, overheat=%d"),
+        Names[CombatTourStage],Combat->GetShotsFired(),Combat->GetHits(),Dead,Combat->GetHeat(),Combat->IsOverheated());
+    FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("JetCombat_%s"),Names[CombatTourStage]),true,false);
+    bCombatShotPending=true;
 }

@@ -1,5 +1,6 @@
 #include "JetGame.h"
 #include "JetPawn.h"
+#include "JetCombatComponent.h"
 #include "JetScenery.h"
 #include "JetTerrain.h"
 
@@ -283,9 +284,18 @@ void AJetPlayerController::RunPauseCheck()
 {
     APawn* Jet = GetPawn();
     if (!Jet || FPlatformTime::Seconds()-PauseCheckAt < 1.) return;
+    auto* Aircraft=Cast<AJetPawn>(Jet);
+    auto* Gun=Aircraft ? Aircraft->GetCombat() : nullptr;
     bool bOk;
     if (PauseCheckStage == 0)
     {
+        if (Gun)
+        {
+            Gun->Advance(0.1f,true,true,Aircraft->GetFlightVelocity());
+            PauseCheckRounds=Gun->GetLiveRounds();
+            PauseCheckShots=Gun->GetShotsFired();
+            PauseCheckHeat=Gun->GetHeat();
+        }
         bOk = SetFlightPaused(true);
         PauseCheckPosition = Jet->GetActorLocation();
         FScreenshotRequest::RequestScreenshot(TEXT("JetPause_Paused"), true, false);
@@ -293,7 +303,10 @@ void AJetPlayerController::RunPauseCheck()
     else if (PauseCheckStage == 1)
     {
         UE_LOG(LogJetFighter, Log, TEXT("Jet pause check: drift %.3f cm"), FVector::Dist(Jet->GetActorLocation(), PauseCheckPosition));
-        bOk = bPauseMenuOpen && Jet->GetActorLocation().Equals(PauseCheckPosition, 1.) && SetFlightPaused(false);
+        const bool FrozenGun=Gun && PauseCheckRounds>0 && Gun->GetLiveRounds()==PauseCheckRounds
+            && Gun->GetShotsFired()==PauseCheckShots && FMath::IsNearlyEqual(Gun->GetHeat(),PauseCheckHeat,1.e-6f);
+        UE_LOG(LogJetFighter,Log,TEXT("Jet pause check: active gun frozen=%d"),FrozenGun);
+        bOk = bPauseMenuOpen && FrozenGun && Jet->GetActorLocation().Equals(PauseCheckPosition, 1.) && SetFlightPaused(false);
         PauseCheckPosition = Jet->GetActorLocation();
         FScreenshotRequest::RequestScreenshot(TEXT("JetPause_Resumed"), true, false);
     }

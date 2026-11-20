@@ -14,6 +14,7 @@ import re, sys
 from pathlib import Path
 log = Path(sys.argv[1]).read_text(errors='replace') if Path(sys.argv[1]).exists() else ''
 ok = (int(sys.argv[3]) == 0 and all(f'Jet pause check: stage {n} PASS' in log for n in range(3))
+      and "Jet pause check: active gun frozen=1" in log
       and all((Path(sys.argv[2])/f'JetPause_{name}.png').is_file() for name in ('Paused','Resumed'))
       and not re.search(r'Fatal error|Assertion failed|Ensure condition failed|Jet pause check: stage \d FAIL', log))
 print('JET PAUSE TEST PASSED' if ok else 'JET PAUSE TEST FAILED: '+sys.argv[1])

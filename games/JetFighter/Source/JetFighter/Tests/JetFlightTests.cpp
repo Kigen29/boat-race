@@ -2,6 +2,9 @@
 #include "../JetTerrain.h"
 #include "../JetScenery.h"
 #include "../JetAircraft.h"
+#include "../JetCombatComponent.h"
+#include "../JetHealthComponent.h"
+#include "../JetTrainingTarget.h"
 #include "Misc/CommandLine.h"
 
 #include "Components/BoxComponent.h"
@@ -335,6 +338,95 @@ bool FJetAirframeArtTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Reverse selection wraps safely"), F.Jet->GetAirframeIndex(), 2);
     F.Jet->SelectAirframe(3);
     TestEqual(TEXT("Forward selection wraps safely"), F.Jet->GetAirframeIndex(), 0);
+    return true;
+}
+
+struct FJetCombatTestAccess
+{
+    static bool Surface(UJetCombatComponent* Gun,const FVector& A,const FVector& B,FVector& Hit)
+    { return Gun->TraceSurface(A,B,Hit); }
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetDamageTest,"JetFighter.Combat.DamageOwnership",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FJetDamageTest::RunTest(const FString& Parameters)
+{
+    auto* Hull=NewObject<UJetHealthComponent>();
+    Hull->ResetHull(120.f,1);
+    TestFalse(TEXT("Friendly hit rejected"),Hull->ApplyHit(12,1,1));
+    TestFalse(TEXT("Negative damage rejected"),Hull->ApplyHit(-12,0,1));
+    TestTrue(TEXT("Hostile hit accepted"),Hull->ApplyHit(12,0,1));
+    TestFalse(TEXT("Duplicate hit rejected"),Hull->ApplyHit(12,0,1));
+    TestEqual(TEXT("Only one shot damaged hull"),Hull->GetHull(),108.f);
+    TestTrue(TEXT("Lethal hit accepted"),Hull->ApplyHit(1000,0,2));
+    TestEqual(TEXT("Hull clamps to zero"),Hull->GetHull(),0.f);
+    TestFalse(TEXT("Dead target cannot be damaged twice"),Hull->ApplyHit(12,0,3));
+    Hull->ResetHull(120,1);
+    TestFalse(TEXT("Reset restores live target"),Hull->IsDestroyed());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetGunTimingTest,"JetFighter.Combat.GunCadenceAndHeat",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FJetGunTimingTest::RunTest(const FString& Parameters)
+{
+    int32 Baseline=-1;
+    for (int32 Fps:{30,60,120})
+    {
+        JetFlightTests::FWorld F;
+        auto* Gun=F.Jet->GetCombat();
+        for(int32 I=0;I<Fps*3;++I) Gun->Advance(1.f/Fps,true,true,FVector::ZeroVector);
+        if(Baseline<0) Baseline=Gun->GetShotsFired();
+        TestEqual(TEXT("Cadence independent of frame rate"),Gun->GetShotsFired(),Baseline);
+        TestEqual(TEXT("38 shots reach overheat"),Gun->GetShotsFired(),38);
+        TestTrue(TEXT("Sustained trigger locks gun"),Gun->IsOverheated());
+        TestTrue(TEXT("Heat bounded"),Gun->GetHeat()<=1.f && Gun->GetHeat()>0.f);
+        const int32 Before=Gun->GetShotsFired();
+        for(int32 I=0;I<Fps*4;++I) Gun->Advance(1.f/Fps,false,true,FVector::ZeroVector);
+        TestFalse(TEXT("Released trigger cools and unlocks"),Gun->IsOverheated());
+        TestTrue(TEXT("Finite range removes all rounds"),Gun->GetLiveRounds()==0);
+        for(int32 I=0;I<Fps;++I) Gun->Advance(1.f/Fps,true,false,FVector::ZeroVector);
+        TestEqual(TEXT("Crashed/disabled aircraft cannot fire"),Gun->GetShotsFired(),Before);
+        Gun->Advance(1.f/Fps,true,true,FVector::ZeroVector);
+        TestTrue(TEXT("Recovered gun fires again"),Gun->GetShotsFired()>Before);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetGunCollisionTest,"JetFighter.Combat.ProjectileCollisionAndTrainingReset",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FJetGunCollisionTest::RunTest(const FString& Parameters)
+{
+    JetFlightTests::FWorld F;
+    auto* Gun=F.Jet->GetCombat();
+    Gun->StartTraining();
+    TestNotNull(TEXT("Training creates drone"),Gun->GetTarget());
+    for(int32 I=0;I<180;++I) Gun->Advance(1.f/120.f,true,true,FVector::ZeroVector);
+    TestTrue(TEXT("Real swept rounds destroy the target"),Gun->GetTarget()->GetHealth()->IsDestroyed());
+    TestEqual(TEXT("Ten 12-damage impacts destroy 120 hull"),Gun->GetHits(),10);
+    auto* OldTarget=Gun->GetTarget();
+    Gun->StartTraining();
+    TestTrue(TEXT("Restart replaces destroyed drone"),Gun->GetTarget()!=OldTarget);
+    TestEqual(TEXT("Restart restores hull"),Gun->GetTarget()->GetHealth()->GetHull(),120.f);
+    TestEqual(TEXT("Restart clears rounds"),Gun->GetLiveRounds(),0);
+    TestEqual(TEXT("Restart clears heat"),Gun->GetHeat(),0.f);
+    AActor* Cover=F.World->SpawnActor<AActor>();
+    auto* Box=NewObject<UBoxComponent>(Cover);
+    Cover->SetRootComponent(Box);
+    Box->SetBoxExtent(FVector(1,2000,2000));
+    Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    Box->SetCollisionResponseToAllChannels(ECR_Block);
+    Box->RegisterComponent();
+    Cover->SetActorLocation(F.Jet->GetActorLocation()+FVector(30000,0,0));
+    for(int32 I=0;I<180;++I) Gun->Advance(1.f/120.f,true,true,FVector::ZeroVector);
+    TestEqual(TEXT("2 cm cover blocks fast rounds before target"),Gun->GetHits(),0);
+    TestEqual(TEXT("Covered drone remains undamaged"),Gun->GetTarget()->GetHealth()->GetHull(),120.f);
+    FVector Contact;
+    const auto Mountain=JetTerrain::Landmarks()[0].PositionMetres*100.;
+    const float Height=JetTerrain::SurfaceHeightCentimetres(FVector2D(Mountain.X,Mountain.Y),0.);
+    TestTrue(TEXT("Analytic terrain sweep detects ridge crossing"),FJetCombatTestAccess::Surface(Gun,
+        FVector(Mountain.X,Mountain.Y,Height+2000),FVector(Mountain.X,Mountain.Y,Height-2000),Contact));
+    TestTrue(TEXT("Contact matches visible surface plus round radius"),FMath::Abs(Contact.Z-Height-25.)<2.);
     return true;
 }
 #endif

@@ -2,6 +2,9 @@
 #include "JetPawn.h"
 #include "JetTerrain.h"
 #include "JetAircraft.h"
+#include "JetCombatComponent.h"
+#include "JetTrainingTarget.h"
+#include "JetHealthComponent.h"
 #include "Fonts/CompositeFont.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
@@ -190,6 +193,36 @@ void AJetHUD::DrawHUD()
         }
     }
 
+    if (const auto* Gun=Jet->GetCombat(); Gun && Gun->GetTarget())
+    {
+        const auto* Target=Gun->GetTarget();
+        const auto* Hull=Target->GetHealth();
+        const float Distance=FVector::Distance(Origin,Target->GetActorLocation())/100.f;
+        DrawRect(Panel,Mid-220*S,140*S,440*S,64*S);
+        Label(Hull->IsDestroyed() ? TEXT("TRAINING COMPLETE / T TO RESTART") : TEXT("TRAINING / DESTROY THE STATIONARY DRONE"),
+            Mid,146*S,14*S,Hull->IsDestroyed()?Cyan:Ink,0.5f);
+        Label(FString::Printf(TEXT("GUN %s / HEAT %d%% / HITS %d"),Gun->IsOverheated()?TEXT("COOLING"):TEXT("READY"),
+            FMath::RoundToInt(Gun->GetHeat()*100.f),Gun->GetHits()),Mid,175*S,13*S,Gun->IsOverheated()?Red:Amber,0.5f);
+        FVector2D Screen;
+        if (!Hull->IsDestroyed() && Project(Target->GetActorLocation(),Screen))
+        {
+            const float R=24*S;
+            DrawLine(Screen.X-R,Screen.Y-R,Screen.X-R,Screen.Y+R,Amber,2.f);
+            DrawLine(Screen.X+R,Screen.Y-R,Screen.X+R,Screen.Y+R,Amber,2.f);
+            DrawRect(Panel,Screen.X-R,Screen.Y-R-9*S,2*R,5*S);
+            DrawRect(Amber,Screen.X-R,Screen.Y-R-9*S,2*R*Hull->GetHull()/Hull->GetMaxHull(),5*S);
+            Label(FString::Printf(TEXT("DRONE / %.0f m / HULL %.0f"),Distance,Hull->GetHull()),
+                Screen.X,Screen.Y+R+6*S,12*S,Distance>UJetCombatComponent::RangeMetres?Dim:Amber,0.5f);
+        }
+        if (Gun->GetHitSeconds()>0.f)
+        {
+            DrawLine(Mid-10*S,H*0.5f-10*S,Mid-4*S,H*0.5f-4*S,Cyan,2.f);
+            DrawLine(Mid+10*S,H*0.5f-10*S,Mid+4*S,H*0.5f-4*S,Cyan,2.f);
+            DrawLine(Mid-10*S,H*0.5f+10*S,Mid-4*S,H*0.5f+4*S,Cyan,2.f);
+            DrawLine(Mid+10*S,H*0.5f+10*S,Mid+4*S,H*0.5f+4*S,Cyan,2.f);
+        }
+    }
+
     // Small attitude instrument: actual bank and pitch, independent of camera lag.
     const FVector Up = Jet->GetActorUpVector(), Wing = Jet->GetActorRightVector();
     const float Bank = FMath::Atan2(-Wing.Z, Up.Z);
@@ -210,7 +243,7 @@ void AJetHUD::DrawHUD()
         W-28*S, H-83*S, 14*S, Jet->IsBoosting() ? Amber : Ink, 1.f);
     Label(TEXT("Mouse aim  /  M direct stick    Up/Down pitch    A/D roll    Q/E rudder    W/S throttle    Shift boost    Space brake"),
         Mid, H-53*S, 12*S, Dim, 0.5f);
-    Label(TEXT("V airframe    F assists    N landmark    R reset    Esc pause    |    Gamepad: sticks fly, triggers throttle, LB boost, RB brake, X assists, Y reset, D-pad left jet/right nav"),
+    Label(TEXT("LMB / Pad A gun    T / D-pad down restart training    V airframe    F assists    N landmark    R flight reset    Esc pause"),
         Mid, H-29*S, 11*S, Dim, 0.5f);
 
     FString Warning, Detail;

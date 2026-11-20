@@ -27,6 +27,8 @@ The root `UE_ROOT` setting and engine discovery work for both games.
 | Shift / Space | Afterburner / airbrake |
 | F | Assisted / Expert flight |
 | R | Reset in the air |
+| Left mouse / gamepad A | Fire nose gun (hold) |
+| T / D-pad down | Restart gun training with a fresh drone |
 | V / D-pad left | Select next original aircraft model |
 | N / D-pad right | Select the next navigation landmark |
 | Esc / Start | Pause / resume |
@@ -68,9 +70,11 @@ water renderer and gameplay are unchanged.
 ## Verification and next work
 
 `Scripts/flight_check.py` mirrors the force/rate and aim equations.
-`Scripts/jet_flight_test.sh` runs nine tests against the actual Unreal code:
+`Scripts/jet_flight_test.sh` runs twelve tests against the actual Unreal code:
 five flight/control/collision tests, terrain-to-mesh agreement, ground-impact
-warnings/respawn, altitude-water budget/transition checks, and the original airframe roster.
+warnings/respawn, altitude-water budget/transition checks, the original
+airframe roster, and three combat tests for damage, gun heat/cadence,
+projectile obstruction and training reset.
 Pass `-RequireJetArt` to require all three imported aircraft assets.
 `Scripts/jet_flight_tour.sh` renders level flight, banking, climbing, a sea
 impact and respawn. `Scripts/jet_check.sh 55` surveys the island world at four
@@ -99,9 +103,15 @@ is included in [Content/Fonts](Content/Fonts/README.md).
 The [research and production plan](docs/vision/00_README.md) covers published
 Sky Warriors gameplay, original aircraft roles, five proposed terrain families,
 mountain channels/elevated lakes, combat, AI, four-player LAN and art pipelines.
-Next is a complete local gun/missile/flare/drone training loop, followed by
+The first gun drill is implemented: an orange stationary drone starts 600 m
+ahead. Hold left mouse / gamepad A to fire along the aircraft nose. Confirmed
+hits reduce hull; ten hits destroy the drone with a brief blast/debris. Heat
+locks the gun after sustained fire; release to cool. T / D-pad down resets
+the encounter. See [combat training](docs/COMBAT_TRAINING.md) for tuning and scope.
+
+Next are targeting, missiles, flares and a manoeuvring drone, followed by
 Stonegate Strait and a team objective mode. Ring training is optional later.
-Weapons, bots, LAN, production terrain and a functional hangar are not yet
+Missiles, bots, LAN, production terrain and a functional hangar are not yet
 implemented. Older docs outside vision are historical.
 
 Art milestone validated on 20 November 2026: editor build, 15 numerical flight
@@ -110,3 +120,8 @@ rendered flight/impact/respawn tour, altitude survey and pause/resume check.
 The survey measured 109–117 fps at 1280 × 720 before the final font-carrier
 correction; the corrected HUD was then inspected in the rendered art tour.
 This is an empty-world prototype benchmark, not a loaded combat benchmark.
+
+Gun-training milestone validated on 20 November 2026: editor build; all twelve
+engine tests with required aircraft art; rendered Ready/Firing/Destroyed/
+Overheat/Restart states; and pause/resume with active rounds and heat frozen.
+`Scripts/jet_combat_tour.sh` reproduces the five-state combat capture.

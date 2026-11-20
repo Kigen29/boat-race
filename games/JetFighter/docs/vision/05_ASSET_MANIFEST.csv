@@ -30,13 +30,13 @@ T13,environment,Frostline fjord terrain,planned,P3,Chunked LOD; shared tiling ma
 T14,environment,Snow rock material layers,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
 T15,environment,Sable Caldera terrain,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
 T16,environment,Volcanic rock and ash,planned,P3,Chunked LOD; shared tiling materials,Fly routes at combat speed; visible/contact surfaces agree
-V01,gameplay visual,Training drone,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V01,gameplay visual,Training drone,runtime prototype,P0,Pooled effects; bounded lifetime,Current simple mesh effects; authored production art remains planned
 V02,gameplay visual,Standard missile,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
-V03,gameplay visual,Gun tracer and muzzle flash,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
-V04,gameplay visual,Hit spark and impact,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V03,gameplay visual,Gun tracer and muzzle flash,runtime prototype,P0,Pooled effects; bounded lifetime,Current simple mesh effects; authored production art remains planned
+V04,gameplay visual,Hit spark and impact,runtime prototype,P0,Pooled effects; bounded lifetime,Current simple mesh effects; authored production art remains planned
 V05,gameplay visual,Flare and smoke,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
 V06,gameplay visual,Missile trail,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
-V07,gameplay visual,Aircraft explosion,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
+V07,gameplay visual,Aircraft explosion,runtime prototype,P0,Pooled effects; bounded lifetime,Current simple mesh effects; authored production art remains planned
 V08,gameplay visual,Persistent wreck smoke,planned,P0,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
 V09,gameplay visual,Objective state beacon,planned,P2,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event
 V10,gameplay visual,Convoy ship,planned,P2,Pooled effects; bounded lifetime,Spawn only from corresponding simulation event

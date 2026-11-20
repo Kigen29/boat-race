@@ -1,15 +1,15 @@
 id,feature,status,dependencies,acceptance
 F01,Original three-aircraft visual selection,implemented,foundation,V selects three imported meshes; same flight profile
 F02,Aviation HUD typeface,implemented,foundation,Text renders in game and pause; font license staged
-F03,Damage and team ownership,planned,foundation,One confirmed event changes hull once
-F04,Nose gun,planned,F03,Swept shots damage drone and stop at terrain
-F05,Gun heat and aim lead,planned,F04,Heat limits fire; lead uses actual relative velocity
+F03,Damage and team ownership,implemented local single-owner,foundation,One confirmed event changes hull once
+F04,Nose gun,implemented training gun,F03,Swept shots damage drone and stop at terrain
+F05,Gun heat and aim lead,partial: heat implemented; lead planned,F04,Heat limits fire; lead uses actual relative velocity
 F06,Target selection and line of sight,planned,F03,Range/cone/terrain eligibility controls acquisition
 F07,Standard guided missile,planned,F06,Finite turning/lifetime; swept collision; evadable
 F08,Incoming warning,planned,F07,Only actual threats produce directional warning
 F09,Flares,planned,F07 F08,Finite inventory affects compatible seeker
 F10,Training drone AI,planned,F04 F07,Uses same flight limits; patrol pursue evade disengage
-F11,Complete training mission,planned,F09 F10,Success failure retry work without console
+F11,Complete training mission,partial: stationary gun drill implemented,F09 F10,Success failure retry work without console
 F12,Chunked terrain authoring,planned,foundation,Near route collision matches visible ground
 F13,Stonegate combat routes,planned,F12,Multiple usable approaches and escape corridors
 F14,Water body query,planned,F12,Ocean and elevated lake contact share body definition

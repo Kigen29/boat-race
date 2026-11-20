@@ -3,6 +3,7 @@
 #include "GameFramework/Pawn.h"
 #include "JetPawn.generated.h"
 
+class UJetCombatComponent;
 class UCameraComponent;
 class UBoxComponent;
 class USpringArmComponent;
@@ -30,6 +31,7 @@ public:
     AJetPawn();
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    UJetCombatComponent* GetCombat() const { return Combat; }
     float SpeedKmh() const { return Velocity.Size() * 3.6f; }
     FVector GetFlightVelocity() const { return Velocity; }
     FVector GetAimDirection() const { return AimRotation.Vector(); }
@@ -77,10 +79,12 @@ private:
     void ResetFlight();
     void Crash();
     void RunFlightTour(float Dt);
+    void RunCombatTour(float Dt);
     FJetControls ReadControls(APlayerController* PC, float Dt);
     FJetControls AimControls() const;
     void AdvanceFlight(float DeltaSeconds, const FJetControls& Controls);
     void Step(float Dt, float Pitch, float Roll, float Yaw, float Throttle, bool Boost, bool Brake);
+    UPROPERTY() TObjectPtr<UJetCombatComponent> Combat;
     UPROPERTY() TObjectPtr<UBoxComponent> Collision;
     UPROPERTY() TObjectPtr<USpringArmComponent> CameraArm;
     UPROPERTY() TObjectPtr<UCameraComponent> Camera;
@@ -97,6 +101,10 @@ private:
     bool bMouseAim = true;
     bool bBoosting = false;
     bool bFlightTour = false;
+    bool bCombatTour = false;
+    int32 CombatTourStage = 0;
+    float CombatTourClock = 0.f;
+    bool bCombatShotPending = false;
     bool bTourShotPending = false;
     int32 TourStage = 0;
     float TourClock = 0.f;

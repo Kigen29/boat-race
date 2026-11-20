@@ -65,10 +65,12 @@ recovery and airspace boundaries. Three selectable original aircraft prototypes
 and a licensed Rajdhani HUD font replace the earlier box airframe. Aircraft
 currently share one flight profile; controls need hands-on playtesting.
 
-Next for JetFighter: a complete local gun/missile/flare/drone combat slice,
+JetFighter now also has a local nose-gun drill: swept rounds, heat, real drone
+hull damage, destruction and restart. LMB / gamepad A fires; T restarts.
+Next for JetFighter: targeting, missiles, flares and a manoeuvring drone,
 then an authored mountain-channel map, team objectives and four-player LAN.
 The extensive research/art plan specifies original jets, lakes, canyons,
-HUD, effects, sound and production gates. These combat features remain planned.
+HUD, effects, sound and production gates. These further combat features remain planned.
 Run `Scripts/import_jet_art.sh` after building to generate jet Unreal assets;
 `Scripts/jet_art_tour.sh` checks all three. See games/JetFighter/Art for source.
 
@@ -83,7 +85,7 @@ Static workspace checks: `python3 tools/check_monorepo.py`.
 ## Verification
 
 Verified on Linux with Unreal 5.9 preview-1, 20 November 2026: both editor
-builds, BoatRace's seven and JetFighter's nine engine tests, numerical
+builds, BoatRace's seven and JetFighter's twelve engine tests, numerical
 boat/jet checks, all three
 course checks, BoatRace's 14-shot rendered tour (lowest sampled stop 48 fps at
 1280 × 720), and JetFighter's flight/impact/respawn and pause/resume tours.

@@ -20,7 +20,10 @@ A successful font load log does not prove the HUD rendered.
 
 ## Milestone 1 — A complete local combat training slice
 
-This is next. A ring race can be optional flight training later; it should not
+The first gun/drone portion is implemented: local hull ownership, swept shots,
+heat, impact/destruction feedback and restart. [Current encounter](../COMBAT_TRAINING.md).
+Targeting, missiles, flares and manoeuvring AI remain next. A ring race can be
+optional flight training later; it should not
 stand between the current prototype and the user's combat-game objective.
 
 Build in this order:

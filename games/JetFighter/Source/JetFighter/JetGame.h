@@ -139,6 +139,9 @@ private:
     int32 PauseCheckStage = 0;
     double PauseCheckAt = 0.;
     FVector PauseCheckPosition = FVector::ZeroVector;
+    int32 PauseCheckRounds = 0;
+    int32 PauseCheckShots = 0;
+    float PauseCheckHeat = 0.f;
     int32 NavigationIndex = 0;
 	bool bShotPending = false;
 	int32 CheckStop = -1;
