@@ -1,5 +1,6 @@
 #include "JetGame.h"
 #include "JetPawn.h"
+#include "JetTerrain.h"
 
 #include "CanvasItem.h"
 #include "Engine/Canvas.h"
@@ -114,6 +115,22 @@ void AJetHUD::DrawHUD()
             && Screen.Y > 100 && Screen.Y < H-140;
     };
     const FVector Origin = Jet->GetActorLocation();
+    const auto& Points = JetTerrain::Landmarks();
+    const auto& Destination = Points[PC->GetNavigationIndex() % Points.Num()];
+    const FVector ToLandmark = Destination.PositionMetres*100.-Origin;
+    const float DistanceKm = ToLandmark.Size()/100000.f;
+    Label(FString::Printf(TEXT("NAV  %s  /  %.1f km  /  %03d  /  N next"), Destination.Name, DistanceKm,
+        FMath::RoundToInt(Heading(ToLandmark.Rotation().Yaw)) % 360), Mid, 96*S, 12*S, Cyan, 0.5f);
+    FVector2D Nav;
+    if (Project(Destination.PositionMetres*100., Nav))
+    {
+        const float R = 8*S;
+        DrawLine(Nav.X-R, Nav.Y, Nav.X, Nav.Y-R, Cyan, 1.5f);
+        DrawLine(Nav.X, Nav.Y-R, Nav.X+R, Nav.Y, Cyan, 1.5f);
+        DrawLine(Nav.X+R, Nav.Y, Nav.X, Nav.Y+R, Cyan, 1.5f);
+        DrawLine(Nav.X, Nav.Y+R, Nav.X-R, Nav.Y, Cyan, 1.5f);
+        Label(Destination.Name, Nav.X, Nav.Y+12*S, 11*S, Cyan, 0.5f);
+    }
     FVector2D Nose, Path, Aim;
     if (Project(Origin + Jet->GetActorForwardVector()*500000., Nose))
     {
@@ -172,7 +189,7 @@ void AJetHUD::DrawHUD()
         W-28*S, H-83*S, 14*S, Jet->IsBoosting() ? Amber : Ink, 1.f);
     Label(TEXT("Mouse aim  /  M direct stick    Up/Down pitch    A/D roll    Q/E rudder    W/S throttle    Shift boost    Space brake"),
         Mid, H-53*S, 12*S, Dim, 0.5f);
-    Label(TEXT("F assists    R reset    Esc pause    |    Gamepad: left stick fly, right stick rudder, triggers throttle, LB boost, RB brake, X assists, Y reset"),
+    Label(TEXT("F assists    N next landmark    R reset    Esc pause    |    Gamepad: left stick fly, triggers throttle, LB boost, RB brake, X assists, Y reset, D-pad right nav"),
         Mid, H-29*S, 11*S, Dim, 0.5f);
 
     FString Warning, Detail;

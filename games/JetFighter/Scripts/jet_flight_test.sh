@@ -5,7 +5,7 @@ LOG="$PROJECT_DIR/Saved/Logs/jet_flight_test.log"
 mkdir -p "$(dirname "$LOG")"
 status=0
 timeout -k 10 240 "$EDITOR_CMD" "$PROJECT_FILE" -unattended -nosplash -nullrhi -nosound -nowrite \
-    -ExecCmds="Automation RunTests JetFighter.Flight" \
+    -ExecCmds="Automation RunTests JetFighter." \
     -TestExit="Automation Test Queue Empty" -abslog="$LOG" > "$LOG.console" 2>&1 || status=$?
 python3 - "$LOG" "$status" <<'PY'
 import re
@@ -13,10 +13,10 @@ import sys
 from pathlib import Path
 
 log = Path(sys.argv[1]).read_text(errors="replace") if Path(sys.argv[1]).exists() else ""
-expected = {"FlightEnvelope", "ControlAxesAndMouseAim", "FrameRateIndependence", "CollisionAndRespawn", "AirspaceRecovery"}
-passed = set(re.findall(r"Test Completed\. Result=\{Success\} Name=\{([^}]+)\} Path=\{JetFighter\.Flight\.", log))
+expected = {"FlightEnvelope", "ControlAxesAndMouseAim", "FrameRateIndependence", "CollisionAndRespawn", "AirspaceRecovery", "TerrainMatchesMesh", "GroundImpactAndWarning", "AltitudeWaterBudget"}
+passed = set(re.findall(r"Test Completed\. Result=\{Success\} Name=\{([^}]+)\} Path=\{JetFighter\.(?:Flight|World)\.", log))
 ok = (int(sys.argv[2]) in (0, 1) and expected == passed
-      and "Automation Test Queue Empty 5 tests performed" in log
+      and "Automation Test Queue Empty 8 tests performed" in log
       and not re.search(r"Fatal error|Assertion failed|Ensure condition failed|Result=\{Fail", log))
 if not ok:
     print("JET FLIGHT TEST FAILED; missing:", ", ".join(sorted(expected-passed)))

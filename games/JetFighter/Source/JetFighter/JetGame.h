@@ -9,6 +9,7 @@
 #include "JetGame.generated.h"
 
 class AWaterSurface;
+class AJetScenery;
 class UCameraComponent;
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
@@ -44,8 +45,8 @@ protected:
 };
 
 /**
- * The jet game's world. For now open sea under a clear sky; land, clouds and
- * an airbase come with the jet world stage. Every machine builds its own.
+ * The jet airspace: islands, a marked airstrip, drifting puff clouds and sea.
+ * Every machine builds the same scenery without replicating static geometry.
  */
 UCLASS()
 class AJetWorld : public AActor
@@ -76,6 +77,7 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<AWaterSurface> Water;
+    UPROPERTY() TObjectPtr<AJetScenery> Scenery;
 };
 
 /**
@@ -123,6 +125,7 @@ public:
 	float GetFps() const { return SmoothedFps; }
     bool IsFlightPaused() const { return bPauseMenuOpen; }
     bool SetFlightPaused(bool bPaused);
+    int32 GetNavigationIndex() const { return NavigationIndex; }
 
 private:
 	void RunJetCheck(float DeltaTime);
@@ -136,6 +139,7 @@ private:
     int32 PauseCheckStage = 0;
     double PauseCheckAt = 0.;
     FVector PauseCheckPosition = FVector::ZeroVector;
+    int32 NavigationIndex = 0;
 	bool bShotPending = false;
 	int32 CheckStop = -1;
 	float CheckClock = 0.f;
@@ -143,7 +147,7 @@ private:
 	float CheckSeconds = 0.f;
 };
 
-/** Height, speed and frame rate, and how to get back to the boats. */
+/** Flight instruments, navigation landmarks and pause menu. */
 UCLASS()
 class AJetHUD : public AHUD
 {

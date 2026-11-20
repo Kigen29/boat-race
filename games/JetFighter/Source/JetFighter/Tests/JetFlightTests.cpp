@@ -1,9 +1,13 @@
 #include "../JetPawn.h"
+#include "../JetTerrain.h"
+#include "../JetScenery.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
+#include "ProceduralMeshComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 // Test access keeps artificial input and teleporting out of the player API.
@@ -22,6 +26,7 @@ struct FJetFlightTestAccess
     static void Velocity(AJetPawn* Jet, const FVector& V) { Jet->Velocity = V; }
     static void Aim(AJetPawn* Jet, const FRotator& R) { Jet->AimRotation = R; }
     static FJetControls AimInput(const AJetPawn* Jet) { return Jet->AimControls(); }
+    static void WaterView(AJetWaterSurface* Water, const FVector& Eye) { Water->RefreshForView(Eye); }
 };
 
 namespace JetFlightTests
@@ -215,6 +220,96 @@ bool FJetAirspaceTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Ceiling also starts grace timer"), F.Jet->IsOutsideAirspace());
     F.Fly(F.Jet->AirspaceGraceSeconds, 120, Input);
     TestTrue(TEXT("Ignoring boundary eventually respawns"), F.Jet->bCrashed);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetTerrainMeshTest, "JetFighter.World.TerrainMatchesMesh",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FJetTerrainMeshTest::RunTest(const FString& Parameters)
+{
+    JetFlightTests::FWorld F;
+    auto* Scenery = F.World->SpawnActor<AJetScenery>();
+    Scenery->DispatchBeginPlay();
+    const auto* Section = Scenery->GetTerrainMesh()->GetProcMeshSection(0);
+    if (!TestNotNull(TEXT("Terrain section exists"), Section)) return false;
+    TestEqual(TEXT("Terrain has a fixed triangle budget"), Section->ProcIndexBuffer.Num()/3, JetTerrain::Cells*JetTerrain::Cells*2);
+    double LargestError = 0.;
+    int32 LandSamples = 0;
+    for (int32 I = 0; I < Section->ProcIndexBuffer.Num(); I += 3*97)
+    {
+        const FVector A = Section->ProcVertexBuffer[Section->ProcIndexBuffer[I]].Position;
+        const FVector B = Section->ProcVertexBuffer[Section->ProcIndexBuffer[I+1]].Position;
+        const FVector C = Section->ProcVertexBuffer[Section->ProcIndexBuffer[I+2]].Position;
+        // Sample inside actual rendered triangles, rather than just checking
+        // the generating function against itself at grid vertices.
+        const FVector P = A*0.2+B*0.3+C*0.5;
+        const double Error = FMath::Abs(JetTerrain::HeightMetres(P.X/100., P.Y/100.)*100.-P.Z);
+        LargestError = FMath::Max(LargestError, Error);
+        if (P.Z > 0.) ++LandSamples;
+    }
+    TestTrue(TEXT("Samples include islands above water"), LandSamples > 10);
+    TestTrue(TEXT("Collision height matches visible triangles within 1 cm"), LargestError < 1.);
+    TestTrue(TEXT("Spawn corridor remains open water"), JetTerrain::HeightMetres(0, 0) < 0.);
+    TestTrue(TEXT("East landmark rises above 900 m"), JetTerrain::HeightMetres(2400, 1200) > 900.);
+    for (double X : {-500., 0., 500.})
+        for (double Y : {-2835., -2800., -2765.})
+            TestTrue(TEXT("The full airstrip sits on its level plateau"), FMath::Abs(JetTerrain::HeightMetres(X, Y)-220.) < 0.01);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetGroundTest, "JetFighter.World.GroundImpactAndWarning",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FJetGroundTest::RunTest(const FString& Parameters)
+{
+    JetFlightTests::FWorld F;
+    F.Jet->SetActorLocation(FVector(240000, 120000, 96000));
+    FJetFlightTestAccess::Velocity(F.Jet, FVector(20, 0, -100));
+    TestTrue(TEXT("Clearance is relative to mountain, not sea level"), F.Jet->GetSurfaceClearance() < 12.f);
+    TestTrue(TEXT("Descent towards mountain warns before contact"), F.Jet->NeedsPullUp());
+    F.Fly(0.2f, 120, FJetControls());
+    TestTrue(TEXT("Aircraft crashes on mountain well above the sea"), F.Jet->bCrashed && F.Jet->GetActorLocation().Z > 90000.);
+    F.Fly(F.Jet->RespawnDelay+0.1f, 120, FJetControls());
+    TestFalse(TEXT("Terrain impact respawns safely"), F.Jet->bCrashed);
+    TestTrue(TEXT("Respawn has safe surface clearance"), F.Jet->GetSurfaceClearance() > 1400.f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJetWaterBudgetTest, "JetFighter.World.AltitudeWaterBudget",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FJetWaterBudgetTest::RunTest(const FString& Parameters)
+{
+    JetFlightTests::FWorld F;
+    auto* Water = F.World->SpawnActor<AJetWaterSurface>();
+    Water->DispatchBeginPlay();
+    auto* Detail = Cast<UProceduralMeshComponent>(Water->GetRootComponent());
+    auto* Distant = Water->FindComponentByClass<UStaticMeshComponent>();
+    if (!TestNotNull(TEXT("Detail water exists"), Detail) || !TestNotNull(TEXT("Distant water exists"), Distant)) return false;
+    const int32 VertexBudget = Detail->GetProcMeshSection(0)->ProcVertexBuffer.Num();
+    FJetFlightTestAccess::WaterView(Water, FVector(0, 0, 150000));
+    TestFalse(TEXT("Aerial view draws only one flat water sheet"), Detail->IsVisible());
+    TestTrue(TEXT("Distant sea remains visible"), Distant->IsVisible());
+    FJetFlightTestAccess::WaterView(Water, FVector(0, 0, 3000));
+    TestTrue(TEXT("Descending restores detailed waves"), Detail->IsVisible());
+    TestEqual(TEXT("Altitude changes preserve vertex budget"), Detail->GetProcMeshSection(0)->ProcVertexBuffer.Num(), VertexBudget);
+    TestTrue(TEXT("Detail perimeter stays above far sheet to avoid depth fighting"),
+        Detail->GetProcMeshSection(0)->ProcVertexBuffer[0].Position.Z > Distant->GetComponentLocation().Z+1.);
+    TestEqual(TEXT("Water sheets share the same material"), Detail->GetMaterial(0), Distant->GetMaterial(0));
+    TestEqual(TEXT("Low, central water keeps full wave detail"), AJetWaterSurface::WaveDetailWeight(30, 0, 600), 1.f);
+    TestEqual(TEXT("Aerial water suppresses subpixel crest patches"), AJetWaterSurface::WaveDetailWeight(1500, 0, 600), 0.f);
+    TestEqual(TEXT("Grid edge always meets flat distant sea"), AJetWaterSurface::WaveDetailWeight(30, 1, 600), 0.f);
+    TestEqual(TEXT("Low flight keeps original wave resolution"), AJetWaterSurface::GridScaleForAltitude(3000, 700), 1.f);
+    TestTrue(TEXT("1.5 km view covers several kilometres of sea"), AJetWaterSurface::GridScaleForAltitude(150000, 700)*700.f*40.f > 600000.f);
+    float Previous = 0.f;
+    for (int32 Height = 0; Height <= 1000000; Height += 1000)
+    {
+        const float Scale = AJetWaterSurface::GridScaleForAltitude(Height, 700);
+        TestTrue(TEXT("Spacing grows monotonically within fixed cap"), Scale >= Previous && Scale <= 64.f);
+        TestTrue(TEXT("Grid spacing stays a power of two"), FMath::IsNearlyEqual(FMath::Log2(Scale), FMath::RoundToFloat(FMath::Log2(Scale))));
+        Previous = Scale;
+    }
     return true;
 }
 #endif

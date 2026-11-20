@@ -1,5 +1,7 @@
 #include "JetGame.h"
 #include "JetPawn.h"
+#include "JetScenery.h"
+#include "JetTerrain.h"
 
 #include "JetFighter.h"
 #include "RaceWeather.h"
@@ -22,6 +24,12 @@ namespace JetGameLocal
 	 *  never went above 200 m, so everything past the first is new ground. */
 	const float CheckHeights[] = { 30.f, 300.f, 1500.f, 4000.f };
 	constexpr int32 NumCheckHeights = UE_ARRAY_COUNT(CheckHeights);
+    FVector CheckPosition(int32 Stop)
+    {
+        // The final aerial view includes the airstrip and several islands,
+        // rather than measuring empty horizon above the first mountain.
+        return FVector(Stop == 3 ? -220000.f : 0.f, Stop == 3 ? -480000.f : 0.f, CheckHeights[Stop]*100.f);
+    }
 
 	/** Let shaders compile and the water settle before the first stop. */
 	constexpr float CheckWarmupSeconds = 10.f;
@@ -99,12 +107,15 @@ void AJetWorld::BeginPlay()
 	Haze->SetFogHeightFalloff(0.2f);
 	Haze->SetFogInscatteringColor(Look.FogColor);
 	Haze->SetVolumetricFog(false);
+    Haze->SetStartDistance(50000.f);
+
+    Scenery = GetWorld()->SpawnActor<AJetScenery>();
 
 	// The same moving sea the boats float on (one wave function everywhere),
 	// without the bay's shore foam.
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Water = GetWorld()->SpawnActorDeferred<AWaterSurface>(AWaterSurface::StaticClass(), FTransform::Identity);
+    Water = GetWorld()->SpawnActorDeferred<AJetWaterSurface>(AJetWaterSurface::StaticClass(), FTransform::Identity);
 	if (Water != nullptr)
 	{
 		Water->bOpenSea = true;
@@ -121,6 +132,7 @@ void AJetWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		Water->Destroy();
 	}
+    if (Scenery) Scenery->Destroy();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -141,7 +153,7 @@ void AJetScoutPawn::SetAutopilot(bool bOn, const FVector& Target, float Yaw)
 	if (bOn)
 	{
 		SetActorLocation(Target);
-		View = FRotator(-8.f, Yaw, 0.f);
+        View = FRotator(-FMath::Clamp(8.+Target.Z/10000., 8., 50.), Yaw, 0.f);
 		Velocity = FVector::ZeroVector;
 	}
 }
@@ -252,6 +264,8 @@ void AJetPlayerController::PlayerTick(float DeltaTime)
         return;
     }
     if (bPauseCheck) RunPauseCheck();
+    if (WasInputKeyJustPressed(EKeys::N) || WasInputKeyJustPressed(EKeys::Gamepad_DPad_Right))
+        NavigationIndex = (NavigationIndex+1) % JetTerrain::Landmarks().Num();
 	if (bJetCheck)
 	{
 		RunJetCheck(DeltaTime);
@@ -310,7 +324,7 @@ void AJetPlayerController::RunJetCheck(float DeltaTime)
 		}
 		CheckStop = 0;
 		CheckClock = 0.f;
-		Scout->SetAutopilot(true, FVector(0.f, 0.f, CheckHeights[0] * 100.f), 30.f);
+        Scout->SetAutopilot(true, CheckPosition(0), 30.f);
 		return;
 	}
 	if (bShotPending)
@@ -326,7 +340,7 @@ void AJetPlayerController::RunJetCheck(float DeltaTime)
 			return;
 		}
 		CheckClock = 0.f;
-		Scout->SetAutopilot(true, FVector(0.f, 0.f, CheckHeights[CheckStop] * 100.f), 30.f);
+        Scout->SetAutopilot(true, CheckPosition(CheckStop), CheckStop == 3 ? 44.f : 30.f);
 		return;
 	}
 	if (CheckClock < CheckSettleSeconds)

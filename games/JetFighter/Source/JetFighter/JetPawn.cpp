@@ -9,6 +9,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "OceanWaves.h"
 #include "JetGame.h"
+#include "JetTerrain.h"
 #include "Engine/World.h"
 #include "Misc/CommandLine.h"
 #include "UnrealClient.h"
@@ -242,7 +243,7 @@ float AJetPawn::GetSurfaceClearance() const
     const FVector P = GetActorLocation();
     const auto* State = GetWorld()->GetGameState<AJetGameState>();
     const float Now = State ? State->GetServerNow() : GetWorld()->GetTimeSeconds();
-    return (P.Z - OceanWaves::GetHeight(FVector2D(P.X, P.Y), Now))/100.f;
+    return (P.Z - JetTerrain::SurfaceHeightCentimetres(FVector2D(P.X, P.Y), Now))/100.f;
 }
 
 bool AJetPawn::NeedsPullUp() const

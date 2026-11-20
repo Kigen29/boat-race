@@ -60,12 +60,13 @@ code never includes either game's rules or terrain implementation.
 
 BoatRace has three circuits, LAN racing, computer rivals, combat, garage and
 weather. JetFighter has local flight, mouse aiming, gamepad controls, a flight
-HUD, swept collisions, crash recovery and airspace boundaries. Its airframe
+HUD, island terrain, navigation landmarks, clouds, swept collisions, crash
+recovery and airspace boundaries. Its airframe
 is still a placeholder, and its controls need hands-on playtesting.
 
-Next for JetFighter: add terrain and landmarks around the airspace, improve
-water/clouds from altitude, and measure performance. Then add a 3D ring course
-and networked air racing before introducing gun/missile combat and AI pilots.
+Next for JetFighter: hands-on flight tuning, a 3D ring course and networked
+air racing before introducing gun/missile combat and AI pilots. The island
+world includes an airstrip landmark and altitude-aware water.
 
 - [BoatRace guide](games/BoatRace/README.md)
 - [BoatRace multiplayer onboarding](games/BoatRace/ONBOARDING.md)
@@ -78,8 +79,11 @@ Static workspace checks: `python3 tools/check_monorepo.py`.
 ## Verification
 
 Verified on Linux with Unreal 5.9 preview-1, 20 November 2026: both editor
-builds, all 12 engine automation tests, numerical boat/jet checks, all three
+builds, BoatRace's seven and JetFighter's eight engine tests, numerical
+boat/jet checks, all three
 course checks, BoatRace's 14-shot rendered tour (lowest sampled stop 48 fps at
 1280 × 720), and JetFighter's flight/impact/respawn and pause/resume tours.
+The new jet island-world survey measured 110–119 fps across 30 m, 300 m,
+1.5 km and 4 km views at 1280 × 720.
 Standalone packaging commands are provided; packaged releases and Windows
 builds have not been validated for this layout yet.
