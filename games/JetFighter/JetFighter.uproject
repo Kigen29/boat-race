@@ -1,0 +1,22 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "",
+  "Category": "Games",
+  "Description": "Standalone arcade jet flight and combat, sharing MaritimeCore with BoatRace.",
+  "Modules": [
+    {
+      "Name": "JetFighter",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "MaritimeCore",
+      "Enabled": true
+    }
+  ],
+  "AdditionalPluginDirectories": [
+    "../../packages"
+  ]
+}

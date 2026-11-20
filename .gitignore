@@ -35,3 +35,11 @@ Content/Models/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Both projects regenerate Unreal assets and share plugin build outputs.
+*.uasset
+*.umap
+games/*/HiggsfieldAssets/*.png
+games/*/HiggsfieldAssets/*.glb
+games/*/HiggsfieldAssets/*.jpg
+games/*/HiggsfieldAssets/*.mp4
